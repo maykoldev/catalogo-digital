@@ -2,26 +2,10 @@ const express = require('express');
 const router = express.Router();
 const ClienteService = require('../services/clienteService');
 const ProductService = require('../services/productService');
+const SupabaseCatalogStore = require('../services/supabaseCatalogStore');
 const authMiddleware = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { supabase, supabaseAdmin } = require('../lib/supabaseClient');
-
-/**
- * Normaliza un registro de cliente proveniente de Supabase con valores predeterminados visuales
- */
-function normalizeSupabaseClient(c) {
-  if (!c) return null;
-  return {
-    ...c,
-    descripcion: c.descripcion || 'Explora nuestra colección con disponibilidad y pedidos directos por WhatsApp.',
-    portada_url: c.portada_url || '',
-    color_primario: c.color_primario || '#4f46e5',
-    moneda_simbolo: c.moneda_simbolo || '$',
-    moneda_codigo: c.moneda_codigo || 'USD',
-    activo: c.activo !== undefined ? c.activo : 1,
-    enlace_publico: `/c/${c.slug}`
-  };
-}
 
 // ==========================================
 // RUTAS PÚBLICAS (Sin Autenticación)
@@ -29,21 +13,47 @@ function normalizeSupabaseClient(c) {
 
 /**
  * GET /api/public/catalogo/:slugOrCode
- * Devuelve la información del catálogo estático de un cliente, su logotipo, foto de portada y productos.
+ * Devuelve la información del catálogo de un cliente, su logotipo, foto de portada y productos.
  */
-router.get('/public/catalogo/:slugOrCode', (req, res) => {
+router.get('/public/catalogo/:slugOrCode', async (req, res) => {
   try {
     const { slugOrCode } = req.params;
-    const client = ClienteService.getBySlugOrCode(slugOrCode);
+    const { search, categoria, minPrecio, maxPrecio, inStock, sortBy, sortOrder } = req.query;
 
+    if (SupabaseCatalogStore.isAvailable) {
+      const clients = await SupabaseCatalogStore.getAllClients();
+      const sbClient = clients.find(
+        (c) => c.slug && c.slug.toLowerCase() === slugOrCode.trim().toLowerCase() && c.activo !== 0
+      );
+      if (sbClient) {
+        const products = await SupabaseCatalogStore.getAllProducts({
+          cliente_id: sbClient.id,
+          search,
+          categoria,
+          minPrecio,
+          maxPrecio,
+          inStock,
+          sortBy,
+          sortOrder
+        });
+        const categories = await SupabaseCatalogStore.getCategories(sbClient.id);
+        return res.json({
+          success: true,
+          cliente: sbClient,
+          categorias: categories,
+          total_productos: products.length,
+          productos: products
+        });
+      }
+    }
+
+    const client = ClienteService.getBySlugOrCode(slugOrCode);
     if (!client) {
       return res.status(404).json({
         success: false,
         error: `El catálogo '${slugOrCode}' no fue encontrado o no está activo.`
       });
     }
-
-    const { search, categoria, minPrecio, maxPrecio, inStock, sortBy, sortOrder } = req.query;
 
     const products = ProductService.getAll({
       cliente_id: client.id,
@@ -83,10 +93,13 @@ const clientUploadFields = upload.fields([
 /**
  * GET /api/admin/clientes
  */
-router.get('/admin/clientes', authMiddleware, (req, res) => {
+router.get('/admin/clientes', authMiddleware, async (req, res) => {
   try {
     const { search } = req.query;
-    const clients = ClienteService.getAll({ search });
+    const clients = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.getAllClients({ search })
+      : ClienteService.getAll({ search });
+
     return res.json({ success: true, count: clients.length, data: clients });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
@@ -96,8 +109,17 @@ router.get('/admin/clientes', authMiddleware, (req, res) => {
 /**
  * GET /api/admin/clientes/:id
  */
-router.get('/admin/clientes/:id', authMiddleware, (req, res) => {
+router.get('/admin/clientes/:id', authMiddleware, async (req, res) => {
   try {
+    if (SupabaseCatalogStore.isAvailable) {
+      const client = await SupabaseCatalogStore.getClientById(req.params.id);
+      if (!client) {
+        return res.status(404).json({ success: false, error: 'Cliente no encontrado.' });
+      }
+      const stats = await SupabaseCatalogStore.getStats(client.id);
+      return res.json({ success: true, data: { ...client, stats } });
+    }
+
     const client = ClienteService.getById(req.params.id);
     if (!client) {
       return res.status(404).json({ success: false, error: 'Cliente no encontrado.' });
@@ -111,34 +133,49 @@ router.get('/admin/clientes/:id', authMiddleware, (req, res) => {
 
 /**
  * POST /api/admin/clientes
- * Soporta multipart (archivos para logo y portada) y JSON
+ * Soporta multipart (archivos para logo y portada) y JSON; persiste en Supabase
  */
-router.post('/admin/clientes', authMiddleware, clientUploadFields, (req, res) => {
+router.post('/admin/clientes', authMiddleware, clientUploadFields, async (req, res) => {
   try {
     const { nombre, slug, descripcion, telefono_whatsapp, email, color_primario, moneda_simbolo, moneda_codigo } = req.body;
     let { logo_url, portada_url } = req.body;
 
+    const folderHint = SupabaseCatalogStore.generateSlug(slug || nombre || 'tiendas');
+
     if (req.files) {
       if (req.files.logo && req.files.logo[0]) {
-        logo_url = `/productos/${encodeURIComponent(req.files.logo[0].filename)}`;
+        logo_url = await SupabaseCatalogStore.uploadMulterFile(req.files.logo[0], folderHint);
       }
       if (req.files.portada && req.files.portada[0]) {
-        portada_url = `/productos/${encodeURIComponent(req.files.portada[0].filename)}`;
+        portada_url = await SupabaseCatalogStore.uploadMulterFile(req.files.portada[0], folderHint);
       }
     }
 
-    const newClient = ClienteService.create({
-      nombre,
-      slug,
-      descripcion,
-      telefono_whatsapp,
-      email,
-      logo_url,
-      portada_url,
-      color_primario,
-      moneda_simbolo,
-      moneda_codigo
-    });
+    const newClient = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.createClient({
+          nombre,
+          slug,
+          descripcion,
+          telefono_whatsapp,
+          email,
+          logo_url,
+          portada_url,
+          color_primario,
+          moneda_simbolo,
+          moneda_codigo
+        })
+      : ClienteService.create({
+          nombre,
+          slug,
+          descripcion,
+          telefono_whatsapp,
+          email,
+          logo_url,
+          portada_url,
+          color_primario,
+          moneda_simbolo,
+          moneda_codigo
+        });
 
     return res.status(201).json({
       success: true,
@@ -152,35 +189,51 @@ router.post('/admin/clientes', authMiddleware, clientUploadFields, (req, res) =>
 
 /**
  * PUT /api/admin/clientes/:id
- * Actualiza datos, logotipo, portada y moneda del cliente
+ * Actualiza datos, logotipo, portada y moneda del cliente en Supabase
  */
-router.put('/admin/clientes/:id', authMiddleware, clientUploadFields, (req, res) => {
+router.put('/admin/clientes/:id', authMiddleware, clientUploadFields, async (req, res) => {
   try {
     const { nombre, slug, descripcion, telefono_whatsapp, email, color_primario, moneda_simbolo, moneda_codigo, activo } = req.body;
     let { logo_url, portada_url } = req.body;
 
+    const folderHint = SupabaseCatalogStore.generateSlug(slug || nombre || 'tiendas');
+
     if (req.files) {
       if (req.files.logo && req.files.logo[0]) {
-        logo_url = `/productos/${encodeURIComponent(req.files.logo[0].filename)}`;
+        logo_url = await SupabaseCatalogStore.uploadMulterFile(req.files.logo[0], folderHint);
       }
       if (req.files.portada && req.files.portada[0]) {
-        portada_url = `/productos/${encodeURIComponent(req.files.portada[0].filename)}`;
+        portada_url = await SupabaseCatalogStore.uploadMulterFile(req.files.portada[0], folderHint);
       }
     }
 
-    const updated = ClienteService.update(req.params.id, {
-      nombre,
-      slug,
-      descripcion,
-      telefono_whatsapp,
-      email,
-      logo_url,
-      portada_url,
-      color_primario,
-      moneda_simbolo,
-      moneda_codigo,
-      activo
-    });
+    const updated = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.updateClient(req.params.id, {
+          nombre,
+          slug,
+          descripcion,
+          telefono_whatsapp,
+          email,
+          logo_url,
+          portada_url,
+          color_primario,
+          moneda_simbolo,
+          moneda_codigo,
+          activo
+        })
+      : ClienteService.update(req.params.id, {
+          nombre,
+          slug,
+          descripcion,
+          telefono_whatsapp,
+          email,
+          logo_url,
+          portada_url,
+          color_primario,
+          moneda_simbolo,
+          moneda_codigo,
+          activo
+        });
 
     return res.json({
       success: true,
@@ -195,9 +248,12 @@ router.put('/admin/clientes/:id', authMiddleware, clientUploadFields, (req, res)
 /**
  * DELETE /api/admin/clientes/:id
  */
-router.delete('/admin/clientes/:id', authMiddleware, (req, res) => {
+router.delete('/admin/clientes/:id', authMiddleware, async (req, res) => {
   try {
-    const result = ClienteService.delete(req.params.id);
+    const result = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.deleteClient(req.params.id)
+      : ClienteService.delete(req.params.id);
+
     return res.json({
       success: true,
       message: 'Cliente y catálogo eliminados con éxito.',
@@ -208,45 +264,20 @@ router.delete('/admin/clientes/:id', authMiddleware, (req, res) => {
   }
 });
 
-/**
- * Función auxiliar para generar slugs URL-friendly a partir del nombre
- */
-function generateSlug(text) {
-  if (!text) return `cliente-${Date.now()}`;
-  const slug = text
-    .toString()
-    .toLowerCase()
-    .trim()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Eliminar acentos y marcas diacríticas
-    .replace(/[^a-z0-9 -]/g, '')     // Eliminar caracteres especiales no alfanuméricos
-    .replace(/\s+/g, '-')            // Reemplazar espacios por guiones
-    .replace(/-+/g, '-');            // Eliminar guiones consecutivos
-  return slug || `cliente-${Date.now()}`;
-}
-
 // ====================================================
 // RUTAS DE INTEGRACIÓN CON SUPABASE
 // ====================================================
 
-/**
- * POST /api/clientes (y /api/supabase/clientes)
- * Endpoint para registrar nuevos clientes en Supabase.
- * Recibe: nombre, teléfono (o telefono_whatsapp), logo (o logo_url o archivo multipart).
- * Genera el slug automáticamente y usa supabaseAdmin para la inserción en la tabla 'clientes'.
- */
 const handleRegisterSupabaseCliente = async (req, res) => {
   try {
     const { nombre } = req.body;
     const telefono = req.body.telefono || req.body['teléfono'] || req.body.telefono_whatsapp || null;
     let logo = req.body.logo || req.body.logo_url || null;
 
-    // Si se adjuntó un archivo de logo mediante multipart/form-data
     if (req.file) {
-      logo = `/productos/${encodeURIComponent(req.file.filename)}`;
+      logo = await SupabaseCatalogStore.uploadMulterFile(req.file, 'tiendas');
     }
 
-    // Validación de campo requerido
     if (!nombre || typeof nombre !== 'string' || !nombre.trim()) {
       return res.status(400).json({
         success: false,
@@ -261,10 +292,9 @@ const handleRegisterSupabaseCliente = async (req, res) => {
       });
     }
 
-    // Generar el slug automáticamente a partir del nombre (o respetar el enviado si existe)
     const slug = req.body.slug && req.body.slug.trim()
-      ? generateSlug(req.body.slug)
-      : generateSlug(nombre);
+      ? SupabaseCatalogStore.generateSlug(req.body.slug)
+      : SupabaseCatalogStore.generateSlug(nombre);
 
     const recordToInsert = {
       nombre: nombre.trim(),
@@ -273,7 +303,6 @@ const handleRegisterSupabaseCliente = async (req, res) => {
       logo_url: logo ? String(logo).trim() : null
     };
 
-    // Inserción en la tabla 'clientes' de Supabase mediante supabaseAdmin
     const { data, error } = await supabaseAdmin
       .from('clientes')
       .insert([recordToInsert])
@@ -282,7 +311,6 @@ const handleRegisterSupabaseCliente = async (req, res) => {
     if (error) {
       console.error('Error insertando cliente en Supabase:', error);
 
-      // Violación de restricción de unicidad en slug (código Postgres 23505)
       if (error.code === '23505') {
         return res.status(409).json({
           success: false,
@@ -298,10 +326,12 @@ const handleRegisterSupabaseCliente = async (req, res) => {
       });
     }
 
+    const created = data && data[0] ? await SupabaseCatalogStore.enrichClient(data[0]) : recordToInsert;
+
     return res.status(201).json({
       success: true,
       message: 'Cliente registrado exitosamente en Supabase.',
-      data: data && data[0] ? data[0] : recordToInsert
+      data: created
     });
   } catch (err) {
     console.error('Excepción al registrar cliente en Supabase:', err);
@@ -317,7 +347,6 @@ router.post('/supabase/clientes', upload.single('logo'), handleRegisterSupabaseC
 
 /**
  * GET /api/clientes (soporta filtro ?slug=...) y GET /api/clientes/:slugOrId
- * Obtiene información pública de comercios desde Supabase (con respaldo transparente a demos locales).
  */
 const handleGetClientes = async (req, res) => {
   try {
@@ -333,15 +362,21 @@ const handleGetClientes = async (req, res) => {
           : await query.eq('slug', slugParam).maybeSingle();
 
         if (!sbError && sbClient) {
+          const enriched = await SupabaseCatalogStore.enrichClient(sbClient);
+          if (enriched.activo === 0) {
+            return res.status(404).json({
+              success: false,
+              error: `El catálogo '${slugParam}' se encuentra pausado temporalmente.`
+            });
+          }
           return res.status(200).json({
             success: true,
             source: 'supabase',
-            data: normalizeSupabaseClient(sbClient)
+            data: enriched
           });
         }
       }
 
-      // Respaldo a catálogos demostrativos locales si existe en SQLite
       const localClient = /^\d+$/.test(slugParam)
         ? ClienteService.getById(Number(slugParam))
         : ClienteService.getBySlugOrCode(slugParam);
@@ -360,7 +395,6 @@ const handleGetClientes = async (req, res) => {
       });
     }
 
-    // Listado general de clientes en Supabase
     if (!dbClient) {
       return res.status(500).json({
         success: false,
@@ -380,7 +414,9 @@ const handleGetClientes = async (req, res) => {
       });
     }
 
-    const normalizedList = (data || []).map(normalizeSupabaseClient);
+    const meta = await SupabaseCatalogStore._loadMeta();
+    const normalizedList = (data || []).map((c) => SupabaseCatalogStore.enrichClientRecord(c, meta.clients));
+
     return res.status(200).json({
       success: true,
       count: normalizedList.length,

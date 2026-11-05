@@ -12,6 +12,18 @@ const adminState = {
   categories: [],
   stats: null,
   localImages: [],
+  storage: {
+    bucket: 'productos',
+    buckets: [],
+    prefix: '',
+    breadcrumbs: [],
+    rootFolders: [],
+    folders: [],
+    files: [],
+    searchQuery: '',
+    selectMode: false,
+    loading: false
+  },
   activeEditingProductId: null,
   activeEditingClientId: null,
   deleteTarget: null, // { type: 'product'|'client', id: ... }
@@ -153,8 +165,10 @@ function setupEventListeners() {
     openClientForm('create');
   });
 
-  // Galería de Imágenes
-  document.getElementById('btn-view-gallery').addEventListener('click', openGalleryModal);
+  // Explorador de Storage
+  document.getElementById('btn-view-gallery').addEventListener('click', () => {
+    openGalleryModal(false, 'browse');
+  });
 
   // Filtros de Productos
   let timer;
@@ -190,6 +204,7 @@ function setupEventListeners() {
 
   setupImageInputListeners();
   setupClientModalListeners();
+  setupStorageExplorerListeners();
 }
 
 function openAccountSettingsModal() {
@@ -300,7 +315,7 @@ function setupImageInputListeners() {
   });
 
   document.getElementById('btn-pick-gallery').addEventListener('click', () => {
-    openGalleryModal(true);
+    openGalleryModal(true, 'product');
   });
 }
 
@@ -813,6 +828,13 @@ function copyActiveCatalogLink() {
 
 // Modal Producto (Crear / Editar)
 function openProductForm(mode, product = null) {
+  if (mode === 'create' && adminState.clients.length === 0) {
+    showToast('Primero registra la tienda/cliente para poder agregarle productos.', 'error');
+    switchTab('clients');
+    openClientForm('create');
+    return;
+  }
+
   const form = document.getElementById('product-form');
   form.reset();
 
@@ -1147,39 +1169,422 @@ async function executeDelete() {
   }
 }
 
-// Galería de Imágenes Locales
+// ==========================================================
+// EXPLORADOR DE CARPETAS E IMÁGENES EN SUPABASE STORAGE
+// ==========================================================
+
+function setupStorageExplorerListeners() {
+  const upBtn = document.getElementById('storage-up-btn');
+  const refreshBtn = document.getElementById('storage-refresh-btn');
+  const searchInput = document.getElementById('storage-search-input');
+  const bucketSelect = document.getElementById('storage-bucket-select');
+
+  if (upBtn) {
+    upBtn.addEventListener('click', () => {
+      const current = adminState.storage.prefix || '';
+      if (!current) return;
+      const parent = current.includes('/') ? current.substring(0, current.lastIndexOf('/')) : '';
+      loadStorageDirectory(parent);
+    });
+  }
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      loadStorageDirectory(adminState.storage.prefix, adminState.storage.bucket);
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      adminState.storage.searchQuery = e.target.value.trim();
+      renderStorageExplorer();
+    });
+  }
+
+  if (bucketSelect) {
+    bucketSelect.addEventListener('change', (e) => {
+      adminState.storage.bucket = e.target.value;
+      adminState.storage.prefix = '';
+      loadStorageDirectory('', e.target.value);
+    });
+  }
+}
+
 async function loadLocalImages() {
   try {
-    const res = await fetch('/api/admin/images', {
+    const res = await fetch('/api/admin/storage?prefix=', {
       headers: { 'Authorization': `Bearer ${adminState.token}` }
     });
     const result = await res.json();
-    if (result.success) adminState.localImages = result.data;
+    if (result.success) {
+      adminState.storage.bucket = result.bucket || 'productos';
+      adminState.storage.buckets = result.buckets || [];
+      adminState.storage.rootFolders = result.rootFolders || [];
+    }
   } catch (err) {}
 }
 
-function openGalleryModal(selectMode = false, target = 'product') {
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function getSuggestedStoreFolderName() {
+  let clientObj = null;
+  if (adminState.galleryTarget === 'product') {
+    const selectedId = document.getElementById('prod-client-id')?.value;
+    clientObj = adminState.clients.find((c) => String(c.id) === String(selectedId));
+  } else if (adminState.galleryTarget === 'client-logo' || adminState.galleryTarget === 'client-cover') {
+    const formName = document.getElementById('client-name')?.value?.trim();
+    const formSlug = document.getElementById('client-slug')?.value?.trim();
+    if (formName || formSlug) {
+      clientObj = { nombre: formName || '', slug: formSlug || '' };
+    }
+  } else if (adminState.activeClientId !== 'all') {
+    clientObj = adminState.clients.find((c) => String(c.id) === String(adminState.activeClientId));
+  }
+
+  if (!clientObj) return null;
+
+  const norm = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '');
+
+  const targetName = norm(clientObj.nombre);
+  const targetSlug = norm(clientObj.slug);
+
+  const match = (adminState.storage.rootFolders || []).find((f) => {
+    const fn = norm(f.name);
+    return fn && (fn === targetName || fn === targetSlug || targetName.includes(fn) || fn.includes(targetName));
+  });
+
+  return match ? match.path : null;
+}
+
+async function openGalleryModal(selectMode = false, target = 'product') {
   adminState.galleryTarget = target;
+  adminState.storage.selectMode = Boolean(selectMode);
+  adminState.storage.searchQuery = '';
+
+  const searchInput = document.getElementById('storage-search-input');
+  if (searchInput) searchInput.value = '';
+
+  const titleEl = document.getElementById('gallery-modal-title');
+  if (titleEl) {
+    if (selectMode && target === 'product') {
+      titleEl.textContent = '🗂️ Seleccionar Imagen del Producto (Storage)';
+    } else if (selectMode && target === 'client-logo') {
+      titleEl.textContent = '🗂️ Seleccionar Logotipo desde Storage';
+    } else if (selectMode && target === 'client-cover') {
+      titleEl.textContent = '🗂️ Seleccionar Foto de Portada desde Storage';
+    } else {
+      titleEl.textContent = '🗂️ Explorador de Carpetas e Imágenes en Storage';
+    }
+  }
+
+  galleryModal.classList.add('active');
+  await loadStorageDirectory(adminState.storage.prefix, adminState.storage.bucket);
+}
+
+async function loadStorageDirectory(prefix = '', bucket = adminState.storage.bucket) {
   const container = document.getElementById('gallery-grid');
-  if (adminState.localImages.length === 0) {
-    container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;">No hay imágenes en productos/</div>';
-  } else {
-    container.innerHTML = adminState.localImages.map(img => `
-      <div style="background: var(--bg-surface-secondary); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
-        <div style="aspect-ratio: 1/1; overflow: hidden; border-radius: var(--radius-sm); background: #fff;">
-          <img src="${img.url}" alt="${img.filename}" style="width: 100%; height: 100%; object-fit: cover;" />
+  const statusBar = document.getElementById('storage-status-bar');
+  adminState.storage.loading = true;
+
+  if (container) {
+    container.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+        ⏳ Cargando carpetas e imágenes desde Supabase Storage...
+      </div>
+    `;
+  }
+  if (statusBar) statusBar.textContent = '';
+
+  try {
+    const params = new URLSearchParams({
+      bucket: bucket || 'productos',
+      prefix: prefix || ''
+    });
+
+    const res = await fetch(`/api/admin/storage?${params.toString()}`, {
+      headers: { 'Authorization': `Bearer ${adminState.token}` }
+    });
+    const result = await res.json();
+
+    if (!res.ok || !result.success) {
+      throw new Error(result.error || 'No se pudo consultar Supabase Storage.');
+    }
+
+    adminState.storage.bucket = result.bucket || 'productos';
+    adminState.storage.buckets = result.buckets || [];
+    adminState.storage.prefix = result.prefix || '';
+    adminState.storage.breadcrumbs = result.breadcrumbs || [];
+    adminState.storage.rootFolders = result.rootFolders || [];
+    adminState.storage.folders = result.folders || [];
+    adminState.storage.files = result.files || [];
+    adminState.localImages = result.files || [];
+
+    renderStorageExplorer();
+  } catch (err) {
+    if (container) {
+      container.innerHTML = `
+        <div style="grid-column: 1/-1; text-align: center; padding: 2.5rem 1rem; color: #ef4444;">
+          ⚠️ ${escapeHtml(err.message || 'Error al cargar Storage')}
         </div>
-        <div style="font-size: 0.75rem; color: var(--text-muted); word-break: break-all; line-height: 1.2;">${img.filename}</div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
-          <span style="font-size: 0.7rem; color: var(--text-subtle);">${img.sizeKb} KB</span>
-          <button class="btn btn-primary btn-sm" onclick="selectGalleryImage('${img.url}')">
-            ${selectMode ? 'Seleccionar' : 'Copiar URL'}
-          </button>
+      `;
+    }
+  } finally {
+    adminState.storage.loading = false;
+  }
+}
+
+function getCurrentlySelectedUrlForTarget() {
+  if (adminState.galleryTarget === 'client-logo') {
+    return document.getElementById('client-logo-url')?.value?.trim() || '';
+  }
+  if (adminState.galleryTarget === 'client-cover') {
+    return document.getElementById('client-cover-url')?.value?.trim() || '';
+  }
+  if (adminState.galleryTarget === 'product') {
+    return document.getElementById('prod-image-url')?.value?.trim() || '';
+  }
+  return '';
+}
+
+function renderStorageExplorer() {
+  const { bucket, buckets, prefix, breadcrumbs, rootFolders, folders, files, searchQuery, selectMode } = adminState.storage;
+  const upBtn = document.getElementById('storage-up-btn');
+  const crumbsEl = document.getElementById('storage-breadcrumbs');
+  const quickFoldersEl = document.getElementById('storage-quick-folders');
+  const bucketSelect = document.getElementById('storage-bucket-select');
+  const statusBar = document.getElementById('storage-status-bar');
+  const container = document.getElementById('gallery-grid');
+
+  // 1. Botón Volver
+  if (upBtn) {
+    upBtn.style.display = prefix ? 'inline-flex' : 'none';
+  }
+
+  // 2. Selector de Bucket (visible solo si hay más de 1 bucket)
+  if (bucketSelect) {
+    if (buckets && buckets.length > 1) {
+      bucketSelect.style.display = 'inline-block';
+      bucketSelect.innerHTML = buckets
+        .map((b) => `<option value="${escapeHtml(b.name)}" ${b.name === bucket ? 'selected' : ''}>🗄️ ${escapeHtml(b.name)}</option>`)
+        .join('');
+    } else {
+      bucketSelect.style.display = 'none';
+    }
+  }
+
+  // 3. Breadcrumbs interactivos
+  if (crumbsEl) {
+    crumbsEl.innerHTML = '';
+    (breadcrumbs || []).forEach((crumb, idx) => {
+      if (idx > 0) {
+        const sep = document.createElement('span');
+        sep.textContent = '›';
+        sep.style.color = 'var(--text-subtle)';
+        sep.style.fontWeight = '700';
+        crumbsEl.appendChild(sep);
+      }
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const isLast = idx === breadcrumbs.length - 1;
+      btn.className = `storage-crumb-btn ${isLast ? 'active' : ''}`;
+      btn.textContent = idx === 0 ? `🏠 ${crumb.label}` : `📁 ${crumb.label}`;
+      btn.addEventListener('click', () => {
+        if (!isLast) loadStorageDirectory(crumb.prefix);
+      });
+      crumbsEl.appendChild(btn);
+    });
+  }
+
+  // 4. Barra rápida de carpetas por tienda (1 clic para saltar entre tiendas)
+  const suggestedFolder = getSuggestedStoreFolderName();
+  if (quickFoldersEl) {
+    if (rootFolders && rootFolders.length > 0) {
+      quickFoldersEl.style.display = 'flex';
+      quickFoldersEl.innerHTML = '';
+
+      const label = document.createElement('span');
+      label.textContent = 'Tiendas / Carpetas:';
+      label.style.fontSize = '0.78rem';
+      label.style.fontWeight = '700';
+      label.style.color = 'var(--text-muted)';
+      quickFoldersEl.appendChild(label);
+
+      const allPill = document.createElement('button');
+      allPill.type = 'button';
+      allPill.className = `storage-folder-pill ${prefix === '' ? 'active' : ''}`;
+      allPill.textContent = '🏠 Todas';
+      allPill.addEventListener('click', () => loadStorageDirectory(''));
+      quickFoldersEl.appendChild(allPill);
+
+      rootFolders.forEach((rf) => {
+        const isActive = prefix === rf.path || prefix.startsWith(`${rf.path}/`);
+        const isSuggested = suggestedFolder && suggestedFolder === rf.path;
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = `storage-folder-pill ${isActive ? 'active' : ''}`;
+        pill.textContent = `${isSuggested ? '⭐ ' : '📁 '}${rf.name}`;
+        pill.addEventListener('click', () => loadStorageDirectory(rf.path));
+        quickFoldersEl.appendChild(pill);
+      });
+    } else {
+      quickFoldersEl.style.display = 'none';
+    }
+  }
+
+  // 5. Filtrado local por búsqueda dentro del nivel actual
+  const q = (searchQuery || '').toLowerCase();
+  const visibleFolders = q
+    ? folders.filter((f) => f.name.toLowerCase().includes(q))
+    : folders;
+  const visibleFiles = q
+    ? files.filter((f) => f.name.toLowerCase().includes(q))
+    : files;
+
+  // 6. Barra de estado descriptiva
+  if (statusBar) {
+    if (!prefix) {
+      statusBar.textContent =
+        visibleFolders.length > 0 && visibleFiles.length === 0
+          ? `Selecciona una carpeta de tienda para ver sus productos (${visibleFolders.length} carpeta${visibleFolders.length === 1 ? '' : 's'} disponible${visibleFolders.length === 1 ? '' : 's'}).`
+          : `Mostrando raíz del bucket '${bucket}': ${visibleFolders.length} carpeta(s) y ${visibleFiles.length} imagen(es).`;
+    } else {
+      statusBar.textContent = `📂 Carpeta actual: ${prefix} — ${visibleFolders.length > 0 ? `${visibleFolders.length} subcarpeta(s), ` : ''}${visibleFiles.length} imagen${visibleFiles.length === 1 ? '' : 'es'} encontrada${visibleFiles.length === 1 ? '' : 's'}.`;
+    }
+  }
+
+  // 7. Renderizado de Tarjetas de Carpetas + Tarjetas de Imágenes
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (visibleFolders.length === 0 && visibleFiles.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; padding: 3rem 1rem; background: var(--bg-surface-secondary); border-radius: var(--radius-md); border: 1px dashed var(--border-light); color: var(--text-muted);">
+        <div style="font-size: 2.25rem; margin-bottom: 0.5rem;">📭</div>
+        <div style="font-weight: 700; color: var(--text-main); margin-bottom: 0.25rem;">
+          ${q ? 'No hay coincidencias con tu búsqueda en esta carpeta' : 'Esta carpeta aún no tiene imágenes'}
+        </div>
+        <div style="font-size: 0.8125rem;">
+          ${prefix ? `Sube imágenes dentro de "${escapeHtml(prefix)}" en Supabase Storage y pulsa Actualizar.` : 'Crea carpetas por tienda o sube imágenes en el bucket de Supabase Storage.'}
         </div>
       </div>
-    `).join('');
+    `;
+    return;
   }
-  galleryModal.classList.add('active');
+
+  // Renderizar carpetas primero
+  visibleFolders.forEach((folder) => {
+    const isSuggested = suggestedFolder && suggestedFolder === folder.path;
+    const card = document.createElement('div');
+    card.className = 'storage-folder-card';
+    if (isSuggested) {
+      card.style.borderColor = 'var(--primary)';
+      card.style.background = '#eef2ff';
+    }
+
+    card.innerHTML = `
+      <div style="font-size: 2.6rem; line-height: 1;">📁</div>
+      <div style="font-weight: 800; font-size: 0.95rem; color: var(--text-main); word-break: break-word;">
+        ${escapeHtml(folder.name)}
+      </div>
+      ${
+        isSuggested
+          ? '<span class="badge" style="background: var(--primary); color: #fff; font-size: 0.68rem;">⭐ Tienda seleccionada</span>'
+          : '<span style="font-size: 0.75rem; color: var(--primary); font-weight: 600;">Abrir carpeta →</span>'
+      }
+    `;
+
+    card.addEventListener('click', () => {
+      loadStorageDirectory(folder.path);
+    });
+
+    container.appendChild(card);
+  });
+
+  // Renderizar archivos de imagen
+  const currentSelectedUrl = getCurrentlySelectedUrlForTarget();
+
+  visibleFiles.forEach((img) => {
+    const isSelected = currentSelectedUrl && currentSelectedUrl === img.url;
+    const card = document.createElement('div');
+    card.className = 'storage-file-card';
+    if (isSelected) {
+      card.style.borderColor = '#16a34a';
+      card.style.boxShadow = '0 0 0 2px rgba(22, 163, 74, 0.18)';
+    }
+
+    const thumbWrap = document.createElement('div');
+    thumbWrap.style.cssText =
+      'aspect-ratio: 1/1; overflow: hidden; border-radius: var(--radius-sm); background: #fff; cursor: pointer; position: relative;';
+    thumbWrap.title = selectMode ? 'Haz clic para elegir esta imagen' : img.filename;
+
+    const imgEl = document.createElement('img');
+    imgEl.src = img.url;
+    imgEl.alt = img.filename;
+    imgEl.loading = 'lazy';
+    imgEl.style.cssText = 'width: 100%; height: 100%; object-fit: cover; display: block;';
+    thumbWrap.appendChild(imgEl);
+
+    if (isSelected) {
+      const badge = document.createElement('span');
+      badge.textContent = '✓ Seleccionada';
+      badge.style.cssText =
+        'position: absolute; top: 6px; right: 6px; background: #16a34a; color: #fff; font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 999px;';
+      thumbWrap.appendChild(badge);
+    }
+
+    thumbWrap.addEventListener('click', () => {
+      if (selectMode) {
+        selectGalleryImage(img.url);
+      } else {
+        copyToClipboard(img.url);
+      }
+    });
+
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText =
+      'font-size: 0.75rem; color: var(--text-main); font-weight: 600; word-break: break-word; line-height: 1.25;';
+    nameEl.textContent = img.filename;
+
+    const footerEl = document.createElement('div');
+    footerEl.style.cssText =
+      'display: flex; justify-content: space-between; align-items: center; margin-top: auto; gap: 0.35rem;';
+
+    const sizeEl = document.createElement('span');
+    sizeEl.style.cssText = 'font-size: 0.7rem; color: var(--text-subtle);';
+    sizeEl.textContent = `${img.sizeKb} KB`;
+
+    const actionBtn = document.createElement('button');
+    actionBtn.type = 'button';
+    actionBtn.className = 'btn btn-primary btn-sm';
+    actionBtn.textContent = selectMode ? 'Seleccionar' : 'Copiar URL';
+    actionBtn.addEventListener('click', () => {
+      if (selectMode) {
+        selectGalleryImage(img.url);
+      } else {
+        copyToClipboard(img.url);
+      }
+    });
+
+    footerEl.appendChild(sizeEl);
+    footerEl.appendChild(actionBtn);
+
+    card.appendChild(thumbWrap);
+    card.appendChild(nameEl);
+    card.appendChild(footerEl);
+    container.appendChild(card);
+  });
 }
 
 function selectGalleryImage(url) {
@@ -1207,7 +1612,7 @@ function selectGalleryImage(url) {
   }
 
   galleryModal.classList.remove('active');
-  showToast('Imagen seleccionada.');
+  showToast('Imagen seleccionada desde Storage.');
 }
 
 // Utilidad: Copiar al Portapapeles

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const ProductService = require('../services/productService');
+const SupabaseCatalogStore = require('../services/supabaseCatalogStore');
 const authMiddleware = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { supabase, supabaseAdmin } = require('../lib/supabaseClient');
@@ -13,9 +14,25 @@ const { supabase, supabaseAdmin } = require('../lib/supabaseClient');
  * GET /api/products
  * Lista de productos filtrados por cliente, categoría, búsqueda o stock
  */
-router.get('/products', (req, res) => {
+router.get('/products', async (req, res) => {
   try {
     const { cliente_id, cliente_slug, search, categoria, minPrecio, maxPrecio, inStock, sortBy, sortOrder } = req.query;
+
+    if (SupabaseCatalogStore.isAvailable) {
+      const products = await SupabaseCatalogStore.getAllProducts({
+        cliente_id,
+        cliente_slug,
+        search,
+        categoria,
+        minPrecio,
+        maxPrecio,
+        inStock,
+        sortBy,
+        sortOrder
+      });
+      return res.json({ success: true, count: products.length, data: products });
+    }
+
     const products = ProductService.getAll({
       cliente_id,
       cliente_slug,
@@ -38,9 +55,12 @@ router.get('/products', (req, res) => {
  * GET /api/products/:id
  * Detalle de un producto individual
  */
-router.get('/products/:id', (req, res) => {
+router.get('/products/:id', async (req, res) => {
   try {
-    const product = ProductService.getById(req.params.id);
+    const product = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.getProductById(req.params.id)
+      : ProductService.getById(req.params.id);
+
     if (!product) {
       return res.status(404).json({ success: false, error: 'Producto no encontrado.' });
     }
@@ -54,10 +74,12 @@ router.get('/products/:id', (req, res) => {
  * GET /api/categories
  * Categorías disponibles (opcionalmente filtradas por cliente_id)
  */
-router.get('/categories', (req, res) => {
+router.get('/categories', async (req, res) => {
   try {
     const { cliente_id } = req.query;
-    const categories = ProductService.getCategories(cliente_id);
+    const categories = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.getCategories(cliente_id)
+      : ProductService.getCategories(cliente_id);
     return res.json({ success: true, data: categories });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
@@ -70,30 +92,47 @@ router.get('/categories', (req, res) => {
 
 /**
  * POST /api/products
- * Crear producto vinculado a un cliente específico
+ * Crear producto vinculado a un cliente específico en Supabase
  */
-router.post('/products', authMiddleware, upload.single('imagen'), (req, res) => {
+router.post('/products', authMiddleware, upload.single('imagen'), async (req, res) => {
   try {
     const { cliente_id, nombre, descripcion, precio, inventario, categoria, imagen_url } = req.body;
 
     let finalImageUrl = imagen_url;
     if (req.file) {
-      finalImageUrl = `/productos/${encodeURIComponent(req.file.filename)}`;
+      let targetFolder = 'subidas';
+      if (SupabaseCatalogStore.isAvailable && cliente_id) {
+        const clientObj = await SupabaseCatalogStore.getClientById(cliente_id).catch(() => null);
+        if (clientObj && clientObj.slug) {
+          targetFolder = clientObj.slug;
+        }
+      }
+      finalImageUrl = await SupabaseCatalogStore.uploadMulterFile(req.file, targetFolder);
     }
 
     if (!finalImageUrl) {
-      finalImageUrl = '/productos/placeholder.png';
+      finalImageUrl = 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
     }
 
-    const newProduct = ProductService.create({
-      cliente_id: cliente_id || 1,
-      nombre,
-      descripcion,
-      precio,
-      inventario,
-      categoria,
-      imagen_url: finalImageUrl
-    });
+    const newProduct = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.createProduct({
+          cliente_id,
+          nombre,
+          descripcion,
+          precio,
+          inventario,
+          categoria,
+          imagen_url: finalImageUrl
+        })
+      : ProductService.create({
+          cliente_id: cliente_id || 1,
+          nombre,
+          descripcion,
+          precio,
+          inventario,
+          categoria,
+          imagen_url: finalImageUrl
+        });
 
     return res.status(201).json({
       success: true,
@@ -110,24 +149,41 @@ router.post('/products', authMiddleware, upload.single('imagen'), (req, res) => 
  * PUT /api/products/:id
  * Actualizar datos de un producto
  */
-router.put('/products/:id', authMiddleware, upload.single('imagen'), (req, res) => {
+router.put('/products/:id', authMiddleware, upload.single('imagen'), async (req, res) => {
   try {
     const { cliente_id, nombre, descripcion, precio, inventario, categoria, imagen_url } = req.body;
 
     let finalImageUrl = imagen_url;
     if (req.file) {
-      finalImageUrl = `/productos/${encodeURIComponent(req.file.filename)}`;
+      let targetFolder = 'subidas';
+      if (SupabaseCatalogStore.isAvailable && cliente_id) {
+        const clientObj = await SupabaseCatalogStore.getClientById(cliente_id).catch(() => null);
+        if (clientObj && clientObj.slug) {
+          targetFolder = clientObj.slug;
+        }
+      }
+      finalImageUrl = await SupabaseCatalogStore.uploadMulterFile(req.file, targetFolder);
     }
 
-    const updated = ProductService.update(req.params.id, {
-      cliente_id,
-      nombre,
-      descripcion,
-      precio,
-      inventario,
-      categoria,
-      imagen_url: finalImageUrl
-    });
+    const updated = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.updateProduct(req.params.id, {
+          cliente_id,
+          nombre,
+          descripcion,
+          precio,
+          inventario,
+          categoria,
+          imagen_url: finalImageUrl
+        })
+      : ProductService.update(req.params.id, {
+          cliente_id,
+          nombre,
+          descripcion,
+          precio,
+          inventario,
+          categoria,
+          imagen_url: finalImageUrl
+        });
 
     return res.json({
       success: true,
@@ -144,10 +200,13 @@ router.put('/products/:id', authMiddleware, upload.single('imagen'), (req, res) 
  * PATCH /api/products/:id/stock
  * Modificación rápida de inventario (+ / -)
  */
-router.patch('/products/:id/stock', authMiddleware, (req, res) => {
+router.patch('/products/:id/stock', authMiddleware, async (req, res) => {
   try {
     const { delta, absolute } = req.body;
-    const updated = ProductService.adjustStock(req.params.id, { delta, absolute });
+    const updated = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.adjustProductStock(req.params.id, { delta, absolute })
+      : ProductService.adjustStock(req.params.id, { delta, absolute });
+
     return res.json({
       success: true,
       message: 'Inventario ajustado correctamente.',
@@ -162,9 +221,12 @@ router.patch('/products/:id/stock', authMiddleware, (req, res) => {
  * DELETE /api/products/:id
  * Eliminación de producto
  */
-router.delete('/products/:id', authMiddleware, (req, res) => {
+router.delete('/products/:id', authMiddleware, async (req, res) => {
   try {
-    const result = ProductService.delete(req.params.id);
+    const result = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.deleteProduct(req.params.id)
+      : ProductService.delete(req.params.id);
+
     return res.json({
       success: true,
       message: 'Producto eliminado del catálogo.',
@@ -176,13 +238,75 @@ router.delete('/products/:id', authMiddleware, (req, res) => {
 });
 
 /**
- * GET /api/admin/images
- * Galería de imágenes físicas en /productos
+ * GET /api/admin/storage
+ * Explorador jerárquico de carpetas e imágenes en Supabase Storage (organizado por tienda/carpeta)
+ * Query params opcionales: ?bucket=productos&prefix=Marys
  */
-router.get('/admin/images', authMiddleware, (req, res) => {
+router.get('/admin/storage', authMiddleware, async (req, res) => {
   try {
+    const bucket = req.query.bucket || 'productos';
+    const prefix = req.query.prefix || req.query.folder || '';
+
+    if (SupabaseCatalogStore.isAvailable) {
+      const result = await SupabaseCatalogStore.listStorageContents({ bucket, prefix });
+      return res.json({
+        success: true,
+        source: 'supabase_storage',
+        ...result
+      });
+    }
+
+    // Respaldo local si Supabase no estuviera conectado
+    const localFiles = ProductService.getLocalImages();
+    return res.json({
+      success: true,
+      source: 'local',
+      bucket: 'local',
+      buckets: [{ name: 'local', public: true }],
+      prefix: '',
+      breadcrumbs: [{ label: 'productos/', prefix: '' }],
+      rootFolders: [],
+      folders: [],
+      files: localFiles.map((f) => ({
+        name: f.filename,
+        filename: f.filename,
+        path: f.filename,
+        folder: '',
+        bucket: 'local',
+        url: f.url,
+        sizeKb: f.sizeKb
+      }))
+    });
+  } catch (error) {
+    console.error('Error en GET /api/admin/storage:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/images
+ * Compatibilidad con listado de imágenes (ahora soporta también ?prefix=... desde Supabase Storage)
+ */
+router.get('/admin/images', authMiddleware, async (req, res) => {
+  try {
+    if (SupabaseCatalogStore.isAvailable) {
+      const result = await SupabaseCatalogStore.listStorageContents({
+        bucket: req.query.bucket || 'productos',
+        prefix: req.query.prefix || ''
+      });
+      return res.json({
+        success: true,
+        count: result.files.length,
+        folders: result.folders,
+        rootFolders: result.rootFolders,
+        prefix: result.prefix,
+        bucket: result.bucket,
+        data: result.files
+      });
+    }
+
     const images = ProductService.getLocalImages();
-    return res.json({ success: true, count: images.length, data: images });
+    return res.json({ success: true, count: images.length, folders: [], data: images });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
   }
@@ -190,20 +314,24 @@ router.get('/admin/images', authMiddleware, (req, res) => {
 
 /**
  * POST /api/admin/upload-image
- * Subida directa de imágenes
+ * Subida directa de imágenes hacia una carpeta de Supabase Storage (ej: ?folder=Marys)
  */
-router.post('/admin/upload-image', authMiddleware, upload.single('imagen'), (req, res) => {
+router.post('/admin/upload-image', authMiddleware, upload.single('imagen'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No se envió ningún archivo de imagen.' });
     }
 
-    const publicUrl = `/productos/${encodeURIComponent(req.file.filename)}`;
+    const folder = req.body.folder || req.query.folder || 'subidas';
+    const bucket = req.body.bucket || req.query.bucket || 'productos';
+    const publicUrl = await SupabaseCatalogStore.uploadMulterFile(req.file, folder, bucket);
+
     return res.json({
       success: true,
-      message: 'Imagen subida correctamente.',
+      message: 'Imagen subida correctamente a Storage.',
       url: publicUrl,
-      filename: req.file.filename
+      filename: req.file.filename,
+      folder
     });
   } catch (error) {
     return res.status(400).json({ success: false, error: error.message });
@@ -217,19 +345,16 @@ router.post('/admin/upload-image', authMiddleware, upload.single('imagen'), (req
 /**
  * POST /api/productos (y /api/supabase/productos, /api/supabase/products)
  * Registra un nuevo producto en Supabase vinculado a un cliente/comercio.
- * Recibe en body: nombre, descripcion, precio, cliente_id, y opcionalmente imagen_url (o archivo).
  */
 const handleRegisterSupabaseProducto = async (req, res) => {
   try {
-    const { nombre, descripcion, precio, cliente_id } = req.body;
+    const { nombre, descripcion, precio, cliente_id, categoria } = req.body;
     let imagen_url = req.body.imagen_url || req.body.imagen || null;
 
-    // Si se subió un archivo físico de imagen vía multipart/form-data
     if (req.file) {
-      imagen_url = `/productos/${encodeURIComponent(req.file.filename)}`;
+      imagen_url = await SupabaseCatalogStore.uploadMulterFile(req.file, 'subidas');
     }
 
-    // 1. Validaciones básicas obligatorias (nombre, precio y cliente_id)
     if (!nombre || typeof nombre !== 'string' || !nombre.trim()) {
       return res.status(400).json({
         success: false,
@@ -244,7 +369,14 @@ const handleRegisterSupabaseProducto = async (req, res) => {
       });
     }
 
-    if (cliente_id === undefined || cliente_id === null || cliente_id === '' || isNaN(Number(cliente_id)) || !Number.isInteger(Number(cliente_id)) || Number(cliente_id) <= 0) {
+    if (
+      cliente_id === undefined ||
+      cliente_id === null ||
+      cliente_id === '' ||
+      isNaN(Number(cliente_id)) ||
+      !Number.isInteger(Number(cliente_id)) ||
+      Number(cliente_id) <= 0
+    ) {
       return res.status(400).json({
         success: false,
         error: 'El campo "cliente_id" es obligatorio y debe ser un número entero positivo correspondiente al comercio.'
@@ -260,14 +392,18 @@ const handleRegisterSupabaseProducto = async (req, res) => {
 
     const parsedClienteId = parseInt(cliente_id, 10);
     const parsedPrecio = parseFloat(Number(precio).toFixed(2));
-    const parsedDescripcion = descripcion && typeof descripcion === 'string' && descripcion.trim() !== ''
-      ? descripcion.trim()
-      : null;
+    const parsedDescripcion =
+      descripcion && typeof descripcion === 'string' && descripcion.trim() !== ''
+        ? descripcion.trim()
+        : null;
 
-    // Si se envía inventario, respetarlo; de lo contrario, usar 10 por defecto (disponible en catálogo)
-    const parsedInventario = req.body.inventario !== undefined && req.body.inventario !== null && req.body.inventario !== '' && !isNaN(Number(req.body.inventario))
-      ? parseInt(req.body.inventario, 10)
-      : 10;
+    const parsedInventario =
+      req.body.inventario !== undefined &&
+      req.body.inventario !== null &&
+      req.body.inventario !== '' &&
+      !isNaN(Number(req.body.inventario))
+        ? parseInt(req.body.inventario, 10)
+        : 10;
 
     const recordToInsert = {
       cliente_id: parsedClienteId,
@@ -278,7 +414,6 @@ const handleRegisterSupabaseProducto = async (req, res) => {
       imagen_url: imagen_url ? String(imagen_url).trim() : null
     };
 
-    // 2. Inserción en la tabla 'productos' en Supabase
     const { data, error } = await supabaseAdmin
       .from('productos')
       .insert([recordToInsert])
@@ -287,7 +422,6 @@ const handleRegisterSupabaseProducto = async (req, res) => {
     if (error) {
       console.error('Error insertando producto en Supabase:', error);
 
-      // Violación de clave foránea (cliente_id no existe en tabla clientes)
       if (error.code === '23503') {
         return res.status(404).json({
           success: false,
@@ -303,10 +437,17 @@ const handleRegisterSupabaseProducto = async (req, res) => {
       });
     }
 
+    const created = data && data[0] ? data[0] : recordToInsert;
+    if (categoria && created && created.id) {
+      const meta = await SupabaseCatalogStore._loadMeta(true);
+      meta.products[String(created.id)] = { categoria: String(categoria).trim() };
+      await SupabaseCatalogStore._saveMeta(meta);
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Producto registrado exitosamente en Supabase.',
-      data: data && data[0] ? data[0] : recordToInsert
+      data: created
     });
   } catch (err) {
     console.error('Excepción al registrar producto en Supabase:', err);
@@ -322,15 +463,13 @@ router.post('/supabase/productos', upload.single('imagen'), handleRegisterSupaba
 router.post('/supabase/products', upload.single('imagen'), handleRegisterSupabaseProducto);
 
 /**
- * GET /api/productos/:cliente_id (y /api/clientes/:cliente_id/productos, /api/productos/cliente/:cliente_id)
+ * GET /api/productos/:cliente_id
  * Obtiene todos los productos asociados a un comercio (cliente_id) desde Supabase.
- * Usa el cliente `supabase` para consultar la tabla 'productos' filtrando por dicha columna.
  */
 const handleGetSupabaseProductosByCliente = async (req, res) => {
   try {
     const { cliente_id } = req.params;
 
-    // Validación del parámetro cliente_id en la URL
     if (!cliente_id || isNaN(Number(cliente_id)) || !Number.isInteger(Number(cliente_id)) || Number(cliente_id) <= 0) {
       return res.status(400).json({
         success: false,
@@ -340,7 +479,6 @@ const handleGetSupabaseProductosByCliente = async (req, res) => {
 
     const parsedClienteId = parseInt(cliente_id, 10);
 
-    // Respaldo opcional para catálogos demostrativos locales cuando el frontend indica ?source=local
     if (req.query.source === 'local') {
       const localProducts = ProductService.getAll({ cliente_id: parsedClienteId });
       return res.status(200).json({
@@ -359,14 +497,12 @@ const handleGetSupabaseProductosByCliente = async (req, res) => {
       });
     }
 
-    // Consulta en Supabase con el cliente estándar filtrando por cliente_id
     let { data, error } = await supabase
       .from('productos')
       .select('*')
       .eq('cliente_id', parsedClienteId)
       .order('id', { ascending: true });
 
-    // Si data está vacío y supabaseAdmin está disponible, verificar si RLS en Supabase restringe la lectura anónima
     if (!error && (!data || data.length === 0) && supabaseAdmin) {
       const adminFallback = await supabaseAdmin
         .from('productos')
@@ -378,7 +514,6 @@ const handleGetSupabaseProductosByCliente = async (req, res) => {
       }
     }
 
-    // Manejo de error si falla la conexión o la consulta en Supabase (retorna 500)
     if (error) {
       console.error(`Error al consultar productos para el comercio ${parsedClienteId} en Supabase:`, error);
       return res.status(500).json({
@@ -388,12 +523,13 @@ const handleGetSupabaseProductosByCliente = async (req, res) => {
       });
     }
 
-    // Retorna estado 200 con el listado de productos encontrados
+    const enrichedProducts = await SupabaseCatalogStore.enrichProductsList(data || []);
+
     return res.status(200).json({
       success: true,
       cliente_id: parsedClienteId,
-      total: data ? data.length : 0,
-      productos: data || []
+      total: enrichedProducts.length,
+      productos: enrichedProducts
     });
   } catch (err) {
     console.error('Excepción al obtener productos en Supabase:', err);

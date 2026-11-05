@@ -66,6 +66,114 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    /* Estilos del Explorador de Carpetas de Supabase Storage */
+    .storage-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      background: var(--bg-surface-secondary);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 0.625rem 0.875rem;
+      margin-bottom: 0.75rem;
+    }
+    .storage-breadcrumbs {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+    }
+    .storage-crumb-btn {
+      background: #fff;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      padding: 0.25rem 0.6rem;
+      font-weight: 600;
+      color: var(--text-main);
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    .storage-crumb-btn:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+    .storage-crumb-btn.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .storage-quick-folders {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px dashed var(--border-light);
+    }
+    .storage-folder-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      background: #f1f5f9;
+      color: var(--text-main);
+      border: 1px solid #cbd5e1;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    .storage-folder-pill:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+      background: #eef2ff;
+    }
+    .storage-folder-pill.active {
+      background: #eef2ff;
+      color: var(--primary);
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
+    }
+    .storage-folder-card {
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      border: 1.5px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 0.5rem;
+      cursor: pointer;
+      transition: var(--transition);
+      min-height: 145px;
+    }
+    .storage-folder-card:hover {
+      border-color: var(--primary);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+      background: #eef2ff;
+    }
+    .storage-file-card {
+      background: var(--bg-surface-secondary);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      transition: var(--transition);
+    }
+    .storage-file-card:hover {
+      border-color: var(--primary);
+      box-shadow: var(--shadow-sm);
+    }
   </style>
 </head>
 <body>
@@ -144,8 +252,8 @@
 
         <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
           <button id="btn-view-gallery" class="btn btn-secondary">
-            <span>📁</span>
-            <span>Galería de Imágenes</span>
+            <span>🗂️</span>
+            <span>Explorador de Storage</span>
           </button>
 
           <button id="btn-new-product" class="btn btn-primary">
@@ -351,10 +459,10 @@
                 📤 Subir Logo
               </button>
               <button type="button" id="btn-pick-client-logo" class="btn btn-secondary btn-sm">
-                📁 Elegir de 'productos/'
+                🗂️ Elegir de Storage (Carpetas)
               </button>
             </div>
-            <input type="text" id="client-logo-url" class="form-control" placeholder="O ruta del logo: /productos/logo.png" />
+            <input type="text" id="client-logo-url" class="form-control" placeholder="O pega la URL pública del logo" />
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem;">
               <div style="width: 50px; height: 50px; border-radius: 50%; border: 2px dashed var(--border-light); overflow: hidden; background: #fff; display: flex; align-items: center; justify-content: center;">
                 <img id="client-logo-preview" src="" alt="Preview Logo" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
@@ -373,10 +481,10 @@
                 📤 Subir Portada
               </button>
               <button type="button" id="btn-pick-client-cover" class="btn btn-secondary btn-sm">
-                📁 Elegir de 'productos/'
+                🗂️ Elegir de Storage (Carpetas)
               </button>
             </div>
-            <input type="text" id="client-cover-url" class="form-control" placeholder="O ruta de la foto de portada: /productos/portada.jpg" />
+            <input type="text" id="client-cover-url" class="form-control" placeholder="O pega la URL pública de la foto de portada" />
             <div class="banner-preview-box">
               <span id="client-cover-placeholder" style="color: var(--text-muted); font-size: 0.8125rem;">
                 Sin foto de portada seleccionada (se usará el degradado predeterminado)
@@ -465,8 +573,8 @@
                 📤 Subir desde PC
               </button>
 
-              <button type="button" id="btn-pick-gallery" class="btn btn-secondary btn-sm">
-                📁 Elegir de 'productos/'
+              <button type="button" id="btn-pick-gallery" class="btn btn-primary btn-sm" style="background: #4338ca;">
+                🗂️ Elegir de Storage (Carpetas)
               </button>
             </div>
 
@@ -474,7 +582,7 @@
               type="text" 
               id="prod-image-url" 
               class="form-control" 
-              placeholder="O ingresa la ruta: /productos/nombre_imagen.jpeg" 
+              placeholder="URL de la imagen seleccionada en Storage..." 
             />
 
             <!-- Caja de Previsualización -->
@@ -495,20 +603,47 @@
     </div>
   </div>
 
-  <!-- MODAL: Galería de Imágenes Existentes -->
-  <div id="gallery-modal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 800px;">
+  <!-- MODAL: Explorador de Carpetas e Imágenes en Supabase Storage -->
+  <div id="gallery-modal" class="modal-overlay" style="z-index: 1200;">
+    <div class="modal-content" style="max-width: 880px;">
       <div class="modal-header">
-        <h3 class="modal-title">Imágenes en Carpeta 'productos/'</h3>
+        <h3 class="modal-title" id="gallery-modal-title">🗂️ Explorador de Imágenes en Storage</h3>
         <button id="close-gallery-modal" class="modal-close">✕</button>
       </div>
 
       <div class="modal-body">
-        <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1rem;">
-          Estas son las imágenes físicas encontradas en el proyecto. Puedes asociarlas a cualquier producto de tus clientes.
-        </p>
+        <!-- Barra de navegación de ruta (Breadcrumbs), Buscador y Recarga -->
+        <div class="storage-toolbar">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" id="storage-up-btn" class="btn btn-secondary btn-sm" style="display: none;" title="Subir a la carpeta anterior">
+              ⬅️ Volver
+            </button>
+            <div id="storage-breadcrumbs" class="storage-breadcrumbs"></div>
+          </div>
 
-        <div id="gallery-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; max-height: 480px; overflow-y: auto; padding: 0.25rem;"></div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <select id="storage-bucket-select" class="form-select" style="display: none; font-size: 0.8125rem; padding: 0.3rem 1.75rem 0.3rem 0.6rem;"></select>
+            <input
+              type="text"
+              id="storage-search-input"
+              class="form-control"
+              placeholder="🔍 Filtrar en carpeta..."
+              style="width: 185px; padding: 0.35rem 0.65rem; font-size: 0.8125rem;"
+            />
+            <button type="button" id="storage-refresh-btn" class="btn btn-secondary btn-sm" title="Actualizar carpetas e imágenes desde Supabase Storage">
+              🔄 Actualizar
+            </button>
+          </div>
+        </div>
+
+        <!-- Accesos rápidos a las carpetas de cada tienda creadas en Storage -->
+        <div id="storage-quick-folders" class="storage-quick-folders" style="display: none;"></div>
+
+        <!-- Estado informativo de carpeta actual -->
+        <div id="storage-status-bar" style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;"></div>
+
+        <!-- Cuadrícula de Carpetas e Imágenes -->
+        <div id="gallery-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 1rem; max-height: 460px; overflow-y: auto; padding: 0.25rem;"></div>
       </div>
     </div>
   </div>
