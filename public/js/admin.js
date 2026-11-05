@@ -466,7 +466,7 @@ async function loadClients() {
       let optionsHtml = '<option value="all">🌐 Todos los Clientes (Vista Global)</option>';
       result.data.forEach(c => {
         optionsHtml += `<option value="${c.id}" ${String(c.id) === String(adminState.activeClientId) ? 'selected' : ''}>
-          ${c.nombre} (${c.total_productos} prods)
+          ${escapeHtml(c.nombre)} (${c.total_productos} prods)
         </option>`;
       });
       adminActiveClientSelect.innerHTML = optionsHtml;
@@ -474,7 +474,7 @@ async function loadClients() {
       // Actualizar select de cliente en modal de producto
       const prodClientSelect = document.getElementById('prod-client-id');
       prodClientSelect.innerHTML = result.data.map(c => `
-        <option value="${c.id}">${c.nombre} (${c.slug})</option>
+        <option value="${c.id}">${escapeHtml(c.nombre)} (${escapeHtml(c.slug)})</option>
       `).join('');
 
       renderClientsGrid();
@@ -500,7 +500,8 @@ function renderClientsGrid() {
 
   clientsGrid.innerHTML = adminState.clients.map(c => {
     const fullUniqueUrl = `${window.location.origin}${c.enlace_publico}`;
-    const coverStyle = c.portada_url ? `background: url('${c.portada_url}') center/cover;` : 'background: linear-gradient(135deg, #1e1b4b, #4338ca);';
+    const safeCoverUrl = c.portada_url ? String(c.portada_url).replace(/'/g, '%27').replace(/"/g, '%22') : '';
+    const coverStyle = safeCoverUrl ? `background: url('${safeCoverUrl}') center/cover;` : 'background: linear-gradient(135deg, #1e1b4b, #4338ca);';
 
     return `
       <div class="client-card">
@@ -509,23 +510,23 @@ function renderClientsGrid() {
           <div style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.65) 100%);"></div>
           <div style="position: absolute; bottom: 8px; left: 1rem; display: flex; align-items: center; gap: 0.625rem; z-index: 2;">
             <div style="width: 44px; height: 44px; border-radius: 50%; border: 2px solid #fff; overflow: hidden; background: #fff; box-shadow: var(--shadow-sm); display: flex; align-items: center; justify-content: center;">
-              <img src="${c.logo_url || 'https://placehold.co/100x100/4f46e5/ffffff?text=L'}" alt="Logo" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='https://placehold.co/100x100/4f46e5/ffffff?text=L';" />
+              <img src="${escapeHtml(c.logo_url || 'https://placehold.co/100x100/4f46e5/ffffff?text=L')}" alt="Logo" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='https://placehold.co/100x100/4f46e5/ffffff?text=L';" />
             </div>
-            <div style="color: #fff; font-weight: 800; font-size: 1.05rem; text-shadow: 0 1px 3px rgba(0,0,0,0.7);">${c.nombre}</div>
+            <div style="color: #fff; font-weight: 800; font-size: 1.05rem; text-shadow: 0 1px 3px rgba(0,0,0,0.7);">${escapeHtml(c.nombre)}</div>
           </div>
           <span class="badge ${c.activo ? 'badge-stock-in' : 'badge-stock-out'}" style="position: absolute; top: 8px; right: 8px; z-index: 2;">
             ${c.activo ? 'Activo' : 'Pausado'}
           </span>
         </div>
 
-        <p style="font-size: 0.8125rem; color: var(--text-muted);">${c.descripcion || 'Sin descripción'}</p>
+        <p style="font-size: 0.8125rem; color: var(--text-muted);">${escapeHtml(c.descripcion || 'Sin descripción')}</p>
 
         <!-- Caja de Enlace Único Estático -->
         <div class="client-link-box">
-          <div class="client-link-text" title="${fullUniqueUrl}">
-            🔗 <a href="${c.enlace_publico}" target="_blank" style="color: var(--primary); font-weight: 600;">${c.enlace_publico}</a>
+          <div class="client-link-text" title="${escapeHtml(fullUniqueUrl)}">
+            🔗 <a href="${escapeHtml(c.enlace_publico)}" target="_blank" style="color: var(--primary); font-weight: 600;">${escapeHtml(c.enlace_publico)}</a>
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('${fullUniqueUrl}')" title="Copiar enlace público completo">
+          <button class="btn btn-secondary btn-sm" onclick="copyClientPublicUrl(${Number(c.id)})" title="Copiar enlace público completo">
             Copiar
           </button>
         </div>
@@ -534,11 +535,11 @@ function renderClientsGrid() {
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.8125rem; background: var(--bg-surface-secondary); padding: 0.75rem; border-radius: var(--radius-md);">
           <div>
             <span style="color: var(--text-muted); display: block; font-size: 0.75rem;">WhatsApp Pedidos:</span>
-            <strong>${c.telefono_whatsapp || 'No asignado'}</strong>
+            <strong>${escapeHtml(c.telefono_whatsapp || 'No asignado')}</strong>
           </div>
           <div>
             <span style="color: var(--text-muted); display: block; font-size: 0.75rem;">Moneda Catálogo:</span>
-            <span class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700;">${c.moneda_codigo || 'USD'} (${c.moneda_simbolo || '$'})</span>
+            <span class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700;">${escapeHtml(c.moneda_codigo || 'USD')} (${escapeHtml(c.moneda_simbolo || '$')})</span>
           </div>
           <div>
             <span style="color: var(--text-muted); display: block; font-size: 0.75rem;">Total Productos:</span>
@@ -546,29 +547,36 @@ function renderClientsGrid() {
           </div>
           <div>
             <span style="color: var(--text-muted); display: block; font-size: 0.75rem;">Valor Catálogo:</span>
-            <strong style="color: var(--primary);">${c.moneda_simbolo || '$'}${c.valor_inventario.toFixed(2)}</strong>
+            <strong style="color: var(--primary);">${escapeHtml(c.moneda_simbolo || '$')}${Number(c.valor_inventario || 0).toFixed(2)}</strong>
           </div>
           <div style="grid-column: 1 / -1;">
             <span style="color: var(--text-muted); display: block; font-size: 0.75rem;">Slug Único:</span>
-            <code>${c.slug}</code>
+            <code>${escapeHtml(c.slug)}</code>
           </div>
         </div>
 
         <!-- Acciones del Catálogo del Cliente -->
         <div style="display: flex; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; border-top: 1px solid var(--border-light);">
-          <button class="btn btn-primary btn-sm" style="flex: 1;" onclick="manageClientCatalog(${c.id})">
+          <button class="btn btn-primary btn-sm" style="flex: 1;" onclick="manageClientCatalog(${Number(c.id)})">
             📦 Gestionar Productos
           </button>
-          <button class="btn btn-secondary btn-sm" onclick="editClient(${c.id})" title="Editar datos">
+          <button class="btn btn-secondary btn-sm" onclick="editClient(${Number(c.id)})" title="Editar datos">
             ✏️
           </button>
-          <button class="btn btn-outline btn-sm" onclick="confirmDelete('client', ${c.id}, '${c.nombre}')" style="color: #ef4444;" title="Eliminar cliente y catálogo">
+          <button class="btn btn-outline btn-sm" onclick="confirmDelete('client', ${Number(c.id)})" style="color: #ef4444;" title="Eliminar cliente y catálogo">
             🗑️
           </button>
         </div>
       </div>
     `;
   }).join('');
+}
+
+function copyClientPublicUrl(clientId) {
+  const client = adminState.clients.find(c => Number(c.id) === Number(clientId));
+  if (client) {
+    copyToClipboard(`${window.location.origin}${client.enlace_publico}`);
+  }
 }
 
 // Acceso directo a gestionar productos de un cliente específico
@@ -716,44 +724,44 @@ function renderAdminTable(products) {
         <td style="font-weight: 700; color: var(--text-muted);">#${p.id}</td>
         <td>
           <img 
-            src="${p.imagen_url}" 
-            alt="${p.nombre}" 
+            src="${escapeHtml(p.imagen_url)}" 
+            alt="${escapeHtml(p.nombre)}" 
             class="table-thumb" 
             loading="lazy"
             onerror="this.src='https://placehold.co/100x100/e2e8f0/475569?text=IMG';"
           />
         </td>
         <td>
-          <div style="font-weight: 700; color: var(--text-main);">${p.nombre}</div>
+          <div style="font-weight: 700; color: var(--text-main);">${escapeHtml(p.nombre)}</div>
           <div style="font-size: 0.75rem; color: var(--text-muted); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            ${p.descripcion}
+            ${escapeHtml(p.descripcion)}
           </div>
         </td>
         <td>
           <span style="font-weight: 600; color: var(--primary); font-size: 0.8125rem;">
-            ${p.cliente_nombre || 'General'}
+            ${escapeHtml(p.cliente_nombre || 'General')}
           </span>
         </td>
         <td>
-          <span class="badge badge-category">${p.categoria}</span>
+          <span class="badge badge-category">${escapeHtml(p.categoria)}</span>
         </td>
         <td style="font-weight: 700; font-size: 0.9375rem;">
-          ${prodSymbol}${Number(p.precio).toFixed(2)}
+          ${escapeHtml(prodSymbol)}${Number(p.precio).toFixed(2)}
         </td>
         <td>
           <div class="stock-stepper">
-            <button type="button" onclick="quickStockAdjust(${p.id}, -1)" title="Reducir 1 unidad">-</button>
+            <button type="button" onclick="quickStockAdjust(${Number(p.id)}, -1)" title="Reducir 1 unidad">-</button>
             <span style="font-weight: 800; min-width: 2rem; text-align: center;">${p.inventario}</span>
-            <button type="button" onclick="quickStockAdjust(${p.id}, 1)" title="Añadir 1 unidad">+</button>
+            <button type="button" onclick="quickStockAdjust(${Number(p.id)}, 1)" title="Añadir 1 unidad">+</button>
           </div>
           <div style="margin-top: 4px;">${stockBadge}</div>
         </td>
         <td style="white-space: nowrap; text-align: center;">
           <div style="display: flex; gap: 0.375rem; justify-content: center;">
-            <button class="btn btn-secondary btn-sm" onclick="editProduct(${p.id})" title="Editar producto">
+            <button class="btn btn-secondary btn-sm" onclick="editProduct(${Number(p.id)})" title="Editar producto">
               ✏️
             </button>
-            <button class="btn btn-outline btn-sm" onclick="confirmDelete('product', ${p.id}, '${p.nombre}')" style="color: #ef4444; border-color: #fecaca;" title="Eliminar producto">
+            <button class="btn btn-outline btn-sm" onclick="confirmDelete('product', ${Number(p.id)})" style="color: #ef4444; border-color: #fecaca;" title="Eliminar producto">
               🗑️
             </button>
           </div>
@@ -1122,8 +1130,19 @@ async function handleClientFormSubmit(e) {
 }
 
 // Modal de Confirmación de Eliminación (Unificado para Producto o Cliente)
-function confirmDelete(type, id, title) {
-  adminState.deleteTarget = { type, id };
+function confirmDelete(type, id, fallbackTitle = '') {
+  let title = fallbackTitle;
+  if (!title) {
+    if (type === 'client') {
+      const found = adminState.clients.find(item => Number(item.id) === Number(id));
+      title = found ? found.nombre : `#${id}`;
+    } else {
+      const found = adminState.products.find(item => Number(item.id) === Number(id));
+      title = found ? found.nombre : `#${id}`;
+    }
+  }
+
+  adminState.deleteTarget = { type, id: Number(id) };
   document.getElementById('delete-modal-title').textContent = type === 'client' ? 'Eliminar Catálogo de Cliente' : 'Eliminar Producto';
   document.getElementById('delete-item-heading').textContent = type === 'client' 
     ? '¿Estás seguro de eliminar este cliente y todo su catálogo?'
@@ -1131,7 +1150,7 @@ function confirmDelete(type, id, title) {
   document.getElementById('delete-item-desc').textContent = type === 'client'
     ? 'Se eliminará el comercio y todos los productos vinculados a este enlace único.'
     : 'Esta acción removerá el ítem de forma permanente.';
-  document.getElementById('delete-item-info').textContent = `${type.toUpperCase()} #${id}: ${title}`;
+  document.getElementById('delete-item-info').textContent = `${type === 'client' ? 'CLIENTE' : 'PRODUCTO'} #${id}: ${title}`;
 
   deleteModal.classList.add('active');
 }
@@ -1144,6 +1163,11 @@ function closeDeleteModal() {
 async function executeDelete() {
   if (!adminState.deleteTarget) return;
   const { type, id } = adminState.deleteTarget;
+  const confirmBtn = document.getElementById('confirm-delete-btn');
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Eliminando...';
+  }
 
   const endpoint = type === 'client' ? `/api/admin/clientes/${id}` : `/api/products/${id}`;
 
@@ -1154,10 +1178,16 @@ async function executeDelete() {
     });
     const result = await res.json();
 
-    if (result.success) {
+    if (res.ok && result.success) {
+      if (type === 'client' && String(adminState.activeClientId) === String(id)) {
+        adminState.activeClientId = 'all';
+        localStorage.setItem('admin_active_client_id', 'all');
+      }
       showToast(type === 'client' ? 'Cliente y catálogo eliminados.' : 'Producto eliminado.');
       closeDeleteModal();
       await loadClients();
+      updateActiveCatalogLink();
+      updateHeadings();
       loadProducts();
       loadStats();
       loadCategories();
@@ -1166,6 +1196,11 @@ async function executeDelete() {
     }
   } catch (err) {
     showToast('Error de red al eliminar.', 'error');
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Sí, Eliminar';
+    }
   }
 }
 
@@ -1229,7 +1264,8 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function getSuggestedStoreFolderName() {
