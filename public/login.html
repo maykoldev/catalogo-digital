@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Acceso Administrativo | Catálogo Digital</title>
+  <title>Super-Administrador | Catálogo Digital</title>
   <link rel="stylesheet" href="/css/styles.css" />
   <style>
     body {
       background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -18,7 +19,7 @@
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow-xl);
       width: 100%;
-      max-width: 420px;
+      max-width: 440px;
       padding: 2.25rem;
     }
     .login-brand {
@@ -26,26 +27,62 @@
       align-items: center;
       justify-content: center;
       gap: 0.75rem;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.25rem;
     }
-    .alert-error {
-      background: #fee2e2;
-      border: 1px solid #fca5a5;
-      color: #b91c1c;
+    .setup-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      background: #eef2ff;
+      color: #4338ca;
+      border: 1px solid #c7d2fe;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      margin-bottom: 0.75rem;
+    }
+    .alert-box {
       padding: 0.75rem 1rem;
       border-radius: var(--radius-md);
       font-size: 0.875rem;
       margin-bottom: 1.25rem;
       display: none;
     }
-    .demo-credentials-box {
-      margin-top: 1.5rem;
-      padding: 0.875rem;
-      background: #f8fafc;
-      border: 1px dashed var(--border-light);
-      border-radius: var(--radius-md);
-      font-size: 0.8125rem;
+    .alert-error {
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      color: #b91c1c;
+    }
+    .alert-success {
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      color: #15803d;
+    }
+    .pwd-wrapper {
+      position: relative;
+    }
+    .pwd-toggle {
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.875rem;
       color: var(--text-muted);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.25rem;
+    }
+    .security-note {
+      margin-top: 1.25rem;
+      padding: 0.75rem 0.875rem;
+      background: #f8fafc;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      line-height: 1.45;
     }
   </style>
 </head>
@@ -53,136 +90,312 @@
 
   <div class="login-card">
     <div class="login-brand">
-      <div class="brand-icon">🎨</div>
-      <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-main);">Panel de Control</div>
+      <div class="brand-icon">⚡</div>
+      <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-main);">Multi-Catalog Admin</div>
     </div>
 
-    <div style="text-align: center; margin-bottom: 1.5rem;">
-      <h2 style="font-size: 1.125rem; font-weight: 700;">Acceso Administrativo</h2>
-      <p style="font-size: 0.8125rem; color: var(--text-muted);">Introduce tus credenciales para gestionar productos e inventario</p>
+    <!-- Estado de carga inicial -->
+    <div id="loading-view" style="text-align: center; padding: 1.5rem 0; color: var(--text-muted); font-size: 0.875rem;">
+      Verificando estado de seguridad...
     </div>
 
-    <div id="error-alert" class="alert-error"></div>
+    <!-- Alertas -->
+    <div id="alert-box" class="alert-box"></div>
 
-    <form id="login-form">
-      <div class="form-group">
-        <label for="username" class="form-label">Usuario</label>
-        <input 
-          type="text" 
-          id="username" 
-          class="form-control" 
-          required 
-          autocomplete="username" 
-          placeholder="Ej: admin"
-          autofocus
-        />
+    <!-- ==========================================================
+         MODO 1: CONFIGURACIÓN INICIAL ÚNICA DEL SUPER-ADMINISTRADOR
+         ========================================================== -->
+    <div id="setup-view" style="display: none;">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <div class="setup-badge">🛡️ Configuración Única de Super-Admin</div>
+        <h2 style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.35rem;">
+          Crea tu Usuario y Contraseña
+        </h2>
+        <p style="font-size: 0.8125rem; color: var(--text-muted);">
+          Elige tus credenciales personales para administrar tus catálogos. Se guardarán de forma segura y permanente.
+        </p>
       </div>
 
-      <div class="form-group">
-        <label for="password" class="form-label">Contraseña</label>
-        <div style="position: relative;">
-          <input 
-            type="password" 
-            id="password" 
-            class="form-control" 
-            required 
-            autocomplete="current-password" 
-            placeholder="••••••••••••"
+      <form id="setup-form">
+        <div class="form-group">
+          <label for="setup-username" class="form-label">Tu Nombre de Usuario *</label>
+          <input
+            type="text"
+            id="setup-username"
+            class="form-control"
+            required
+            minlength="3"
+            maxlength="50"
+            autocomplete="username"
+            placeholder="Escribe tu usuario personalizado"
           />
-          <button 
-            type="button" 
-            id="toggle-pwd-btn" 
-            style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 0.875rem; color: var(--text-muted);"
-          >
-            👁️
-          </button>
+          <small style="color: var(--text-subtle); font-size: 0.75rem;">Mínimo 3 caracteres, sin espacios.</small>
         </div>
+
+        <div class="form-group">
+          <label for="setup-password" class="form-label">Crea tu Contraseña *</label>
+          <div class="pwd-wrapper">
+            <input
+              type="password"
+              id="setup-password"
+              class="form-control"
+              required
+              minlength="6"
+              autocomplete="new-password"
+              placeholder="Mínimo 6 caracteres"
+              style="padding-right: 2.5rem;"
+            />
+            <button type="button" class="pwd-toggle" data-target="setup-password" title="Mostrar u ocultar">👁️</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="setup-password-confirm" class="form-label">Confirmar Contraseña *</label>
+          <div class="pwd-wrapper">
+            <input
+              type="password"
+              id="setup-password-confirm"
+              class="form-control"
+              required
+              minlength="6"
+              autocomplete="new-password"
+              placeholder="Repite tu contraseña"
+              style="padding-right: 2.5rem;"
+            />
+            <button type="button" class="pwd-toggle" data-target="setup-password-confirm" title="Mostrar u ocultar">👁️</button>
+          </div>
+        </div>
+
+        <button type="submit" id="setup-submit-btn" class="btn btn-primary" style="width: 100%; padding: 0.8rem; font-size: 0.9375rem; font-weight: 700;">
+          Guardar Mis Credenciales e Ingresar
+        </button>
+      </form>
+
+      <div class="security-note">
+        🔒 <strong>Registro protegido:</strong> En cuanto guardes tu cuenta, este formulario se cerrará de forma permanente para que solo tú puedas iniciar sesión.
       </div>
-
-      <button type="submit" id="submit-btn" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-size: 0.9375rem;">
-        Iniciar Sesión
-      </button>
-    </form>
-
-    <div class="demo-credentials-box">
-      <div style="font-weight: 700; color: var(--text-main); margin-bottom: 0.25rem;">🔑 Credenciales de Acceso Inicial:</div>
-      <div><strong>Usuario:</strong> <code>admin</code></div>
-      <div><strong>Contraseña:</strong> <code>admin123456</code></div>
     </div>
 
-    <div style="text-align: center; margin-top: 1.25rem;">
-      <a href="/" style="font-size: 0.875rem; color: var(--primary); font-weight: 600;">
-        ← Volver al Catálogo Público
-      </a>
+    <!-- ==========================================================
+         MODO 2: INICIO DE SESIÓN HABITUAL DEL SUPER-ADMINISTRADOR
+         ========================================================== -->
+    <div id="login-view" style="display: none;">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <h2 style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.35rem;">
+          Acceso Super-Administrador
+        </h2>
+        <p style="font-size: 0.8125rem; color: var(--text-muted);">
+          Ingresa tu usuario y contraseña para gestionar catálogos e inventario
+        </p>
+      </div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="login-username" class="form-label">Usuario</label>
+          <input
+            type="text"
+            id="login-username"
+            class="form-control"
+            required
+            autocomplete="username"
+            placeholder="Tu nombre de usuario"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="login-password" class="form-label">Contraseña</label>
+          <div class="pwd-wrapper">
+            <input
+              type="password"
+              id="login-password"
+              class="form-control"
+              required
+              autocomplete="current-password"
+              placeholder="••••••••••••"
+              style="padding-right: 2.5rem;"
+            />
+            <button type="button" class="pwd-toggle" data-target="login-password" title="Mostrar u ocultar">👁️</button>
+          </div>
+        </div>
+
+        <button type="submit" id="login-submit-btn" class="btn btn-primary" style="width: 100%; padding: 0.8rem; font-size: 0.9375rem; font-weight: 700;">
+          Iniciar Sesión
+        </button>
+      </form>
     </div>
   </div>
 
+  <script src="/js/env-config.js"></script>
   <script>
-    // Verificar si ya existe un token válido para redirigir
-    const existingToken = localStorage.getItem('admin_token');
-    if (existingToken) {
-      fetch('/api/auth/me', {
-        headers: { 'Authorization': `Bearer ${existingToken}` }
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          window.location.href = '/admin';
-        } else {
-          localStorage.removeItem('admin_token');
-        }
-      })
-      .catch(() => {});
+    const API_BASE = ((window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '').replace(/\/$/, '');
+    const apiUrl = (p) => `${API_BASE}${p}`;
+
+    const loadingView = document.getElementById('loading-view');
+    const setupView = document.getElementById('setup-view');
+    const loginView = document.getElementById('login-view');
+    const alertBox = document.getElementById('alert-box');
+
+    function showAlert(message, type = 'error') {
+      alertBox.textContent = message;
+      alertBox.className = `alert-box ${type === 'success' ? 'alert-success' : 'alert-error'}`;
+      alertBox.style.display = 'block';
     }
 
-    // Toggle de visibilidad de contraseña
-    const pwdInput = document.getElementById('password');
-    const toggleBtn = document.getElementById('toggle-pwd-btn');
-    toggleBtn.addEventListener('click', () => {
-      const isPwd = pwdInput.type === 'password';
-      pwdInput.type = isPwd ? 'text' : 'password';
-      toggleBtn.textContent = isPwd ? '🔒' : '👁️';
+    function hideAlert() {
+      alertBox.style.display = 'none';
+    }
+
+    // Botones de mostrar/ocultar contraseña
+    document.querySelectorAll('.pwd-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = document.getElementById(btn.dataset.target);
+        if (!input) return;
+        const isPwd = input.type === 'password';
+        input.type = isPwd ? 'text' : 'password';
+        btn.textContent = isPwd ? '🔒' : '👁️';
+      });
     });
 
-    // Envío del formulario de autenticación
-    const loginForm = document.getElementById('login-form');
-    const errorAlert = document.getElementById('error-alert');
-    const submitBtn = document.getElementById('submit-btn');
+    // Inicialización: verificar si el Super-Admin ya configuró su cuenta
+    async function initAuthPage() {
+      try {
+        const statusRes = await fetch(apiUrl('/api/auth/setup-status'));
+        const statusData = await statusRes.json();
+        const isInitialized = Boolean(statusData && statusData.initialized);
 
-    loginForm.addEventListener('submit', async (e) => {
+        if (!isInitialized) {
+          // Aún no existe Super-Admin: limpiar cualquier token antiguo y mostrar formulario de creación
+          localStorage.removeItem('admin_token');
+          loadingView.style.display = 'none';
+          loginView.style.display = 'none';
+          setupView.style.display = 'block';
+          document.getElementById('setup-username').focus();
+          return;
+        }
+
+        // Si ya está inicializado, verificar si el navegador ya tiene una sesión activa válida
+        const existingToken = localStorage.getItem('admin_token');
+        if (existingToken) {
+          try {
+            const meRes = await fetch(apiUrl('/api/auth/me'), {
+              headers: { 'Authorization': `Bearer ${existingToken}` }
+            });
+            const meData = await meRes.json();
+            if (meRes.ok && meData.success) {
+              window.location.href = '/admin';
+              return;
+            }
+          } catch (_) {}
+          localStorage.removeItem('admin_token');
+        }
+
+        loadingView.style.display = 'none';
+        setupView.style.display = 'none';
+        loginView.style.display = 'block';
+        document.getElementById('login-username').focus();
+      } catch (err) {
+        loadingView.style.display = 'none';
+        loginView.style.display = 'block';
+        showAlert('No se pudo verificar el estado del servidor. Revisa tu conexión.');
+      }
+    }
+
+    // Envío de Creación Inicial de Super-Admin
+    document.getElementById('setup-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      errorAlert.style.display = 'none';
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Verificando...';
+      hideAlert();
 
-      const username = document.getElementById('username').value.trim();
-      const password = document.getElementById('password').value;
+      const username = document.getElementById('setup-username').value.trim();
+      const password = document.getElementById('setup-password').value;
+      const confirmPassword = document.getElementById('setup-password-confirm').value;
+      const submitBtn = document.getElementById('setup-submit-btn');
+
+      if (username.length < 3 || /\s/.test(username)) {
+        showAlert('El nombre de usuario debe tener al menos 3 caracteres y no incluir espacios.');
+        return;
+      }
+
+      if (password.length < 6) {
+        showAlert('La contraseña debe tener al menos 6 caracteres.');
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        showAlert('Las contraseñas no coinciden. Verifícalas e intenta de nuevo.');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Guardando tus credenciales...';
 
       try {
-        const res = await fetch('/api/auth/login', {
+        const res = await fetch(apiUrl('/api/auth/setup'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
         });
-
         const data = await res.json();
 
-        if (data.success && data.token) {
+        if (res.ok && data.success && data.token) {
+          localStorage.setItem('admin_token', data.token);
+          showAlert('¡Cuenta de Super-Administrador creada con éxito! Ingresando al panel...', 'success');
+          setTimeout(() => {
+            window.location.href = '/admin';
+          }, 600);
+        } else {
+          showAlert(data.error || 'No se pudo completar el registro.');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Guardar Mis Credenciales e Ingresar';
+        }
+      } catch (err) {
+        showAlert('Error de conexión con el servidor.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Guardar Mis Credenciales e Ingresar';
+      }
+    });
+
+    // Envío de Inicio de Sesión Habitual
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideAlert();
+
+      const username = document.getElementById('login-username').value.trim();
+      const password = document.getElementById('login-password').value;
+      const submitBtn = document.getElementById('login-submit-btn');
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Verificando...';
+
+      try {
+        const res = await fetch(apiUrl('/api/auth/login'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success && data.token) {
           localStorage.setItem('admin_token', data.token);
           window.location.href = '/admin';
+        } else if (data.code === 'SETUP_REQUIRED') {
+          loginView.style.display = 'none';
+          setupView.style.display = 'block';
+          showAlert('Configura primero tu usuario y contraseña de Super-Administrador.');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Iniciar Sesión';
         } else {
-          errorAlert.textContent = data.error || 'Credenciales inválidas.';
-          errorAlert.style.display = 'block';
+          showAlert(data.error || 'Usuario o contraseña incorrectos.');
           submitBtn.disabled = false;
           submitBtn.textContent = 'Iniciar Sesión';
         }
       } catch (err) {
-        errorAlert.textContent = 'Error de conexión con el servidor.';
-        errorAlert.style.display = 'block';
+        showAlert('Error de conexión con el servidor.');
         submitBtn.disabled = false;
         submitBtn.textContent = 'Iniciar Sesión';
       }
     });
+
+    initAuthPage();
   </script>
 </body>
 </html>

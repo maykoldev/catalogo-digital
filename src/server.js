@@ -161,10 +161,8 @@ const server = app.listen(config.PORT, config.HOST, () => {
   console.log(`📡 Escuchando en:      http://${config.HOST}:${config.PORT}`);
   console.log(`🩺 Health Check:       http://localhost:${config.PORT}/api/health`);
   console.log(`🔐 Panel Super-Admin:  http://localhost:${config.PORT}/admin`);
-  console.log(`🔑 Login Acceso:       http://localhost:${config.PORT}/login`);
-  console.log(`👤 Super-Admin User:   ${config.ADMIN_DEFAULT.username}`);
+  console.log(`🔑 Acceso / Registro:  http://localhost:${config.PORT}/login`);
   if (!isProd) {
-    console.log(`🔑 Super-Admin Clave:  ${config.ADMIN_DEFAULT.password}`);
     console.log(`🔗 Enlaces Únicos Demo:`);
     console.log(`   - http://localhost:${config.PORT}/c/arte-scrap`);
     console.log(`   - http://localhost:${config.PORT}/c/creaciones-luna`);

@@ -1,8 +1,4 @@
-const fs = require('fs');
-const path = require('path');
 const db = require('./database');
-const config = require('../config/config');
-const AuthService = require('../services/authService');
 
 function seedDatabase() {
   if (!db || db.isAvailable === false) {
@@ -10,20 +6,7 @@ function seedDatabase() {
   }
   console.log('--- Verificando Inicialización Multi-Inquilino ---');
 
-  // 1. Asegurar Administrador por defecto
-  const checkAdminStmt = db.prepare('SELECT id FROM administradores WHERE username = ?');
-  const existingAdmin = checkAdminStmt.get(config.ADMIN_DEFAULT.username);
-
-  if (!existingAdmin) {
-    const { hash, salt } = AuthService.hashPassword(config.ADMIN_DEFAULT.password);
-    db.prepare(`
-      INSERT INTO administradores (username, password_hash, salt)
-      VALUES (?, ?, ?)
-    `).run(config.ADMIN_DEFAULT.username, hash, salt);
-    console.log(`[Seguridad] Administrador creado: '${config.ADMIN_DEFAULT.username}'`);
-  }
-
-  // 2. Asegurar Clientes Iniciales con Logo y Portada
+  // Asegurar Clientes Iniciales con Logo y Portada (sin crear usuarios admin predefinidos)
   const clientCount = db.prepare('SELECT COUNT(*) as count FROM clientes').get().count;
 
   let cliente1Id = 1;

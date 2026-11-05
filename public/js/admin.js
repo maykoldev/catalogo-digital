@@ -48,6 +48,7 @@ const productFormModal = document.getElementById('product-form-modal');
 const clientFormModal = document.getElementById('client-form-modal');
 const galleryModal = document.getElementById('gallery-modal');
 const deleteModal = document.getElementById('delete-modal');
+const accountSettingsModal = document.getElementById('account-settings-modal');
 const toastContainer = document.getElementById('toast-container');
 
 // Document Ready
@@ -78,6 +79,10 @@ async function checkAuth() {
     const data = await res.json();
     if (data.success) {
       adminState.adminUser = data.user;
+      const navUserEl = document.getElementById('admin-navbar-username');
+      if (navUserEl && data.user && data.user.username) {
+        navUserEl.textContent = data.user.username;
+      }
       return true;
     }
     logout();
@@ -174,8 +179,97 @@ function setupEventListeners() {
   document.getElementById('cancel-delete-btn').addEventListener('click', closeDeleteModal);
   document.getElementById('confirm-delete-btn').addEventListener('click', executeDelete);
 
+  // Modal de Credenciales de Cuenta Super-Admin
+  const btnAccount = document.getElementById('btn-account-settings');
+  if (btnAccount && accountSettingsModal) {
+    btnAccount.addEventListener('click', openAccountSettingsModal);
+    document.getElementById('close-account-modal').addEventListener('click', closeAccountSettingsModal);
+    document.getElementById('cancel-account-btn').addEventListener('click', closeAccountSettingsModal);
+    document.getElementById('account-settings-form').addEventListener('submit', handleAccountSettingsSubmit);
+  }
+
   setupImageInputListeners();
   setupClientModalListeners();
+}
+
+function openAccountSettingsModal() {
+  const form = document.getElementById('account-settings-form');
+  if (form) form.reset();
+  const usernameInput = document.getElementById('acc-new-username');
+  if (usernameInput && adminState.adminUser) {
+    usernameInput.value = adminState.adminUser.username || '';
+  }
+  accountSettingsModal.classList.add('active');
+}
+
+function closeAccountSettingsModal() {
+  if (accountSettingsModal) {
+    accountSettingsModal.classList.remove('active');
+  }
+}
+
+async function handleAccountSettingsSubmit(e) {
+  e.preventDefault();
+  const newUsername = document.getElementById('acc-new-username').value.trim();
+  const newPassword = document.getElementById('acc-new-password').value;
+  const confirmPassword = document.getElementById('acc-confirm-password').value;
+  const currentPassword = document.getElementById('acc-current-password').value;
+  const saveBtn = document.getElementById('save-account-btn');
+
+  if (newUsername.length < 3 || /\s/.test(newUsername)) {
+    showToast('El nombre de usuario debe tener al menos 3 caracteres y sin espacios.', 'error');
+    return;
+  }
+
+  if (newPassword && newPassword.length < 6) {
+    showToast('La nueva contraseña debe tener al menos 6 caracteres.', 'error');
+    return;
+  }
+
+  if (newPassword && newPassword !== confirmPassword) {
+    showToast('Las nuevas contraseñas no coinciden.', 'error');
+    return;
+  }
+
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Guardando...';
+
+  try {
+    const res = await fetch('/api/auth/credentials', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminState.token}`
+      },
+      body: JSON.stringify({
+        currentPassword,
+        newUsername,
+        newPassword: newPassword || undefined
+      })
+    });
+    const result = await res.json();
+
+    if (res.ok && result.success) {
+      if (result.token) {
+        adminState.token = result.token;
+        localStorage.setItem('admin_token', result.token);
+      }
+      if (result.user) {
+        adminState.adminUser = result.user;
+        const navUserEl = document.getElementById('admin-navbar-username');
+        if (navUserEl) navUserEl.textContent = result.user.username;
+      }
+      closeAccountSettingsModal();
+      showToast('¡Tus credenciales de Super-Administrador fueron actualizadas!');
+    } else {
+      showToast(result.error || 'No se pudieron actualizar las credenciales.', 'error');
+    }
+  } catch (err) {
+    showToast('Error de conexión al actualizar credenciales.', 'error');
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Guardar Cambios';
+  }
 }
 
 function setupImageInputListeners() {

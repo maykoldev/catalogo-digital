@@ -16,10 +16,7 @@ module.exports = {
   PRODUCTOS_DIR: path.join(ROOT_DIR, 'productos'),
   DB_PATH: path.join(ROOT_DIR, 'data', 'catalogo.sqlite'),
   SESSION_DURATION_HOURS: 24,
-  ADMIN_DEFAULT: {
-    username: process.env.ADMIN_USER || 'admin',
-    password: process.env.ADMIN_PASSWORD || 'admin123456'
-  },
+  SESSION_SECRET: process.env.SESSION_SECRET || '',
   CURRENCY: {
     symbol: '$',
     code: 'USD'

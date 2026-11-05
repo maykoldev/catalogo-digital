@@ -99,6 +99,11 @@
           <span style="display: none; @media(min-width: 640px){display:inline;}">Ver Catálogo</span>
         </a>
 
+        <button id="btn-account-settings" class="btn btn-secondary btn-sm" style="background: #1e293b; color: #e2e8f0; border-color: #334155;" title="Cambiar mi usuario o contraseña de Super-Administrador">
+          <span>👤</span>
+          <span id="admin-navbar-username">Mi Cuenta</span>
+        </button>
+
         <button id="btn-logout" class="btn btn-outline btn-sm" style="color: #f87171; border-color: #7f1d1d;" title="Cerrar sesión">
           <span>🚪</span>
           <span>Salir</span>
@@ -533,6 +538,49 @@
         <button type="button" id="cancel-delete-btn" class="btn btn-secondary">Cancelar</button>
         <button type="button" id="confirm-delete-btn" class="btn btn-danger">Sí, Eliminar</button>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Configuración de Cuenta del Super-Administrador -->
+  <div id="account-settings-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 460px;">
+      <div class="modal-header">
+        <h3 class="modal-title">🔐 Mis Credenciales de Super-Admin</h3>
+        <button id="close-account-modal" class="modal-close">✕</button>
+      </div>
+
+      <form id="account-settings-form">
+        <div class="modal-body">
+          <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Actualiza tu nombre de usuario o contraseña cuando lo desees. Los cambios quedarán guardados permanentemente en Supabase.
+          </p>
+
+          <div class="form-group">
+            <label for="acc-new-username" class="form-label">Nombre de Usuario *</label>
+            <input type="text" id="acc-new-username" class="form-control" required minlength="3" maxlength="50" placeholder="Tu usuario personalizado" />
+          </div>
+
+          <div class="form-group">
+            <label for="acc-new-password" class="form-label">Nueva Contraseña (Opcional)</label>
+            <input type="password" id="acc-new-password" class="form-control" minlength="6" autocomplete="new-password" placeholder="Déjalo vacío para mantener la actual" />
+          </div>
+
+          <div class="form-group">
+            <label for="acc-confirm-password" class="form-label">Confirmar Nueva Contraseña</label>
+            <input type="password" id="acc-confirm-password" class="form-control" minlength="6" autocomplete="new-password" placeholder="Repite la nueva contraseña" />
+          </div>
+
+          <div class="form-group" style="padding-top: 0.5rem; border-top: 1px dashed var(--border-light);">
+            <label for="acc-current-password" class="form-label">Contraseña Actual para Confirmar *</label>
+            <input type="password" id="acc-current-password" class="form-control" required autocomplete="current-password" placeholder="Ingresa tu contraseña actual" />
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancel-account-btn" class="btn btn-secondary">Cancelar</button>
+          <button type="submit" id="save-account-btn" class="btn btn-primary">Guardar Cambios</button>
+        </div>
+      </form>
     </div>
   </div>
 
