@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acceso Administrativo | Catálogo Digital</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    body {
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .login-card {
+      background: #ffffff;
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-xl);
+      width: 100%;
+      max-width: 420px;
+      padding: 2.25rem;
+    }
+    .login-brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .alert-error {
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      color: #b91c1c;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      margin-bottom: 1.25rem;
+      display: none;
+    }
+    .demo-credentials-box {
+      margin-top: 1.5rem;
+      padding: 0.875rem;
+      background: #f8fafc;
+      border: 1px dashed var(--border-light);
+      border-radius: var(--radius-md);
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="brand-icon">🎨</div>
+      <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-main);">Panel de Control</div>
+    </div>
+
+    <div style="text-align: center; margin-bottom: 1.5rem;">
+      <h2 style="font-size: 1.125rem; font-weight: 700;">Acceso Administrativo</h2>
+      <p style="font-size: 0.8125rem; color: var(--text-muted);">Introduce tus credenciales para gestionar productos e inventario</p>
+    </div>
+
+    <div id="error-alert" class="alert-error"></div>
+
+    <form id="login-form">
+      <div class="form-group">
+        <label for="username" class="form-label">Usuario</label>
+        <input 
+          type="text" 
+          id="username" 
+          class="form-control" 
+          required 
+          autocomplete="username" 
+          placeholder="Ej: admin"
+          autofocus
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="password" class="form-label">Contraseña</label>
+        <div style="position: relative;">
+          <input 
+            type="password" 
+            id="password" 
+            class="form-control" 
+            required 
+            autocomplete="current-password" 
+            placeholder="••••••••••••"
+          />
+          <button 
+            type="button" 
+            id="toggle-pwd-btn" 
+            style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 0.875rem; color: var(--text-muted);"
+          >
+            👁️
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" id="submit-btn" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-size: 0.9375rem;">
+        Iniciar Sesión
+      </button>
+    </form>
+
+    <div class="demo-credentials-box">
+      <div style="font-weight: 700; color: var(--text-main); margin-bottom: 0.25rem;">🔑 Credenciales de Acceso Inicial:</div>
+      <div><strong>Usuario:</strong> <code>admin</code></div>
+      <div><strong>Contraseña:</strong> <code>admin123456</code></div>
+    </div>
+
+    <div style="text-align: center; margin-top: 1.25rem;">
+      <a href="/" style="font-size: 0.875rem; color: var(--primary); font-weight: 600;">
+        ← Volver al Catálogo Público
+      </a>
+    </div>
+  </div>
+
+  <script>
+    // Verificar si ya existe un token válido para redirigir
+    const existingToken = localStorage.getItem('admin_token');
+    if (existingToken) {
+      fetch('/api/auth/me', {
+        headers: { 'Authorization': `Bearer ${existingToken}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          window.location.href = '/admin';
+        } else {
+          localStorage.removeItem('admin_token');
+        }
+      })
+      .catch(() => {});
+    }
+
+    // Toggle de visibilidad de contraseña
+    const pwdInput = document.getElementById('password');
+    const toggleBtn = document.getElementById('toggle-pwd-btn');
+    toggleBtn.addEventListener('click', () => {
+      const isPwd = pwdInput.type === 'password';
+      pwdInput.type = isPwd ? 'text' : 'password';
+      toggleBtn.textContent = isPwd ? '🔒' : '👁️';
+    });
+
+    // Envío del formulario de autenticación
+    const loginForm = document.getElementById('login-form');
+    const errorAlert = document.getElementById('error-alert');
+    const submitBtn = document.getElementById('submit-btn');
+
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorAlert.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Verificando...';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+
+        if (data.success && data.token) {
+          localStorage.setItem('admin_token', data.token);
+          window.location.href = '/admin';
+        } else {
+          errorAlert.textContent = data.error || 'Credenciales inválidas.';
+          errorAlert.style.display = 'block';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Iniciar Sesión';
+        }
+      } catch (err) {
+        errorAlert.textContent = 'Error de conexión con el servidor.';
+        errorAlert.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Iniciar Sesión';
+      }
+    });
+  </script>
+</body>
+</html>

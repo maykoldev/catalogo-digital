@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Catálogo Digital</title>
+  <meta name="description" content="Catálogo digital interactivo y estático con inventario en tiempo real y pedidos directos por WhatsApp." />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+
+  <!-- Encabezado y Barra de Navegación Pública (Sin selector de tiendas ni enlace admin) -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <div class="brand-logo" id="brand-container" style="user-select: none;">
+        <img id="brand-logo-img" class="brand-logo-img" style="display: none;" alt="Logo" />
+        <div id="brand-icon-default" class="brand-icon">🛍️</div>
+        <span id="brand-title">Catálogo Digital</span>
+      </div>
+
+      <!-- Buscador en tiempo real dentro del catálogo exclusivo del cliente -->
+      <div class="header-search">
+        <span class="search-icon">🔍</span>
+        <input 
+          type="text" 
+          id="search-input" 
+          class="search-input" 
+          placeholder="Buscar productos en este catálogo..." 
+          autocomplete="off"
+        />
+      </div>
+
+      <!-- Acción única del cliente: Carrito de Pedidos WhatsApp -->
+      <div class="header-actions">
+        <button id="cart-btn" class="btn btn-secondary" style="position: relative;" title="Ver lista de pedido">
+          <span>🛒</span>
+          <span style="display: none; @media(min-width: 768px){display:inline;}">Mi Pedido</span>
+          <span id="cart-badge" class="badge" style="background: var(--primary); color: #fff; margin-left: 0.25rem; display: none;">0</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Banner Hero con presentación exclusiva del comercio asignado -->
+  <section class="hero-banner" id="hero-section">
+    <div class="container hero-content">
+      <div id="hero-logo-container" class="hero-logo-container" style="display: none;">
+        <img id="hero-logo-img" class="hero-logo-img" src="" alt="Logotipo de la Tienda" />
+      </div>
+      <h1 class="hero-title" id="hero-title">Catálogo Digital</h1>
+      <p class="hero-subtitle" id="hero-subtitle">Explora nuestra colección con inventario disponible en tiempo real.</p>
+      
+      <div class="hero-badges">
+        <div class="hero-badge-item">
+          <span>⚡</span>
+          <span>Disponibilidad en tiempo real</span>
+        </div>
+        <div class="hero-badge-item">
+          <span>💬</span>
+          <span>Pedidos directos a WhatsApp</span>
+        </div>
+        <div class="hero-badge-item">
+          <span>🛡️</span>
+          <span>Catálogo exclusivo y verificado</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Controles, Pestañas de Categoría y Filtros -->
+  <main class="container">
+    <div class="catalog-controls" id="catalog-controls-bar">
+      <!-- Pestañas de categorías con conteo exclusivo del catálogo -->
+      <nav id="category-tabs" class="category-tabs" aria-label="Categorías"></nav>
+
+      <!-- Barra de Filtros secundarios y orden -->
+      <div class="filter-bar">
+        <div class="results-count" id="results-count">Cargando catálogo...</div>
+
+        <div class="filter-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="in-stock-checkbox" />
+            <span>Solo productos en stock</span>
+          </label>
+
+          <select id="sort-select" class="form-select">
+            <option value="id-ASC">Orden sugerido</option>
+            <option value="precio-ASC">Precio: Menor a Mayor</option>
+            <option value="precio-DESC">Precio: Mayor a Menor</option>
+            <option value="nombre-ASC">Nombre: A - Z</option>
+            <option value="inventario-DESC">Mayor disponibilidad</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cuadrícula de Productos Aislados del Cliente -->
+    <section id="products-grid" class="products-grid" aria-live="polite">
+      <!-- Se puebla dinámicamente según el slug del cliente -->
+    </section>
+  </main>
+
+  <!-- Footer Público Neutral -->
+  <footer style="margin-top: auto; background: #fff; border-top: 1px solid var(--border-light); padding: 2rem 0; text-align: center; color: var(--text-muted); font-size: 0.875rem;">
+    <div class="container">
+      <p style="font-weight: 600; color: var(--text-main); margin-bottom: 0.35rem;" id="footer-brand">Catálogo Digital</p>
+      <p style="font-size: 0.8125rem;">Inventario y precios sujetos a disponibilidad al momento de confirmar el pedido por WhatsApp.</p>
+    </div>
+  </footer>
+
+  <!-- MODAL: Detalle de Producto -->
+  <div id="product-modal" class="modal-overlay" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Detalle del Producto</h3>
+        <button id="close-modal-btn" class="modal-close" aria-label="Cerrar modal">✕</button>
+      </div>
+      <div id="product-modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- DRAWER: Carrito de Pedidos para WhatsApp -->
+  <div id="cart-drawer" class="drawer-overlay">
+    <div id="cart-backdrop" style="position: absolute; inset: 0;"></div>
+    <aside class="drawer-panel">
+      <div class="drawer-header">
+        <div style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 1.125rem;">
+          <span>🛒</span>
+          <span>Mi Pedido para WhatsApp</span>
+        </div>
+        <button id="close-cart-btn" class="modal-close" aria-label="Cerrar pedido">✕</button>
+      </div>
+
+      <div id="cart-items" class="drawer-items"></div>
+
+      <div class="drawer-footer">
+        <div id="buyer-form-container" style="display: none; margin-bottom: 0.875rem; padding-bottom: 0.875rem; border-bottom: 1px solid var(--border-light);">
+          <div style="font-size: 0.8125rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem;">
+            👤 Tus datos para confirmar el pedido
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <input
+              type="text"
+              id="buyer-name"
+              class="form-control"
+              placeholder="Tu nombre completo *"
+              autocomplete="name"
+              style="padding: 0.5rem 0.75rem; font-size: 0.875rem;"
+            />
+            <input
+              type="tel"
+              id="buyer-phone"
+              class="form-control"
+              placeholder="Tu teléfono / WhatsApp *"
+              autocomplete="tel"
+              style="padding: 0.5rem 0.75rem; font-size: 0.875rem;"
+            />
+            <input
+              type="text"
+              id="buyer-address"
+              class="form-control"
+              placeholder="Dirección de entrega (opcional)"
+              autocomplete="street-address"
+              style="padding: 0.5rem 0.75rem; font-size: 0.875rem;"
+            />
+          </div>
+        </div>
+
+        <div class="drawer-total">
+          <span>Total Estimado:</span>
+          <span id="cart-total-amount" style="color: var(--primary); font-size: 1.35rem;">$0.00</span>
+        </div>
+        <button id="btn-checkout-whatsapp" class="btn btn-whatsapp" style="width: 100%; font-size: 1rem; padding: 0.75rem;">
+          <span>💬</span>
+          <span id="btn-checkout-label">Enviar Pedido por WhatsApp</span>
+        </button>
+        <p style="font-size: 0.75rem; color: var(--text-muted); text-align: center; margin-top: 0.625rem;">
+          Se abrirá WhatsApp con el detalle directo al comercio dueño de este catálogo.
+        </p>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Contenedor de Notificaciones Toast -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Configuración dinámica de entorno y Script del Catálogo Público -->
+  <script src="/js/env-config.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

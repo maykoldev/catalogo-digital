@@ -1,0 +1,31 @@
+{
+  "name": "catalogo-digital",
+  "version": "1.0.0",
+  "description": "Catálogo digital multi-inquilino autogestionable con integración Supabase y pedidos por WhatsApp",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "seed": "node src/db/seed.js",
+    "test": "node test-api.js"
+  },
+  "keywords": [
+    "catalogo",
+    "ecommerce",
+    "multi-tenant",
+    "supabase",
+    "express",
+    "whatsapp"
+  ],
+  "author": "Senior Web Architect",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1"
+  }
+}

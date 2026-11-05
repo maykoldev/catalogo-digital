@@ -1,0 +1,18 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno y secretos (nunca subir a Git)
+.env
+.env.*
+!.env.example
+
+# Bases de datos locales SQLite
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+
+# Logs y archivos temporales del sistema operativo
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db

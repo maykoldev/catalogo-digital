@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel de Super-Administrador | Generador Multi-Inquilino</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .admin-nav-tabs {
+      display: flex;
+      gap: 0.5rem;
+      border-bottom: 2px solid var(--border-light);
+      margin-bottom: 1.5rem;
+    }
+    .admin-nav-tab {
+      padding: 0.75rem 1.25rem;
+      font-weight: 700;
+      font-size: 0.9375rem;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .admin-nav-tab:hover {
+      color: var(--primary);
+    }
+    .admin-nav-tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+    .client-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      transition: var(--transition);
+    }
+    .client-card:hover {
+      box-shadow: var(--shadow-md);
+      border-color: #cbd5e1;
+    }
+    .client-link-box {
+      background: var(--bg-surface-secondary);
+      border: 1px solid var(--border-light);
+      padding: 0.5rem 0.75rem;
+      border-radius: var(--radius-md);
+      font-family: monospace;
+      font-size: 0.8125rem;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      overflow: hidden;
+    }
+    .client-link-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Barra de navegación privada del Super-Administrador -->
+  <nav class="admin-navbar">
+    <div class="container admin-nav-inner">
+      <div style="display: flex; align-items: center; gap: 0.875rem;">
+        <a href="/admin" class="brand-logo" style="color: #fff;">
+          <div class="brand-icon">⚡</div>
+          <span>Multi-Catalog SuperAdmin</span>
+        </a>
+      </div>
+
+      <!-- Selector global de Catálogo Activo -->
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 0.8125rem; color: #94a3b8;">Catálogo Activo:</span>
+          <select id="admin-active-client-select" class="form-select" style="background: #1e293b; color: #fff; border-color: #334155; font-weight: 600; font-size: 0.875rem; padding: 0.35rem 2rem 0.35rem 0.75rem;">
+            <option value="all">🌐 Todos los Clientes (Global)</option>
+          </select>
+        </div>
+
+        <button id="btn-copy-active-link" class="btn btn-secondary btn-sm" title="Copiar enlace único del catálogo seleccionado">
+          <span>📋</span>
+          <span style="display: none; @media(min-width: 640px){display:inline;}">Copiar Enlace</span>
+        </button>
+
+        <a id="btn-view-active-catalog" href="/" target="_blank" class="btn btn-secondary btn-sm" title="Abrir catálogo público">
+          <span>🌐</span>
+          <span style="display: none; @media(min-width: 640px){display:inline;}">Ver Catálogo</span>
+        </a>
+
+        <button id="btn-logout" class="btn btn-outline btn-sm" style="color: #f87171; border-color: #7f1d1d;" title="Cerrar sesión">
+          <span>🚪</span>
+          <span>Salir</span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container" style="padding-top: 1.5rem; padding-bottom: 3rem;">
+    
+    <!-- Pestañas de navegación de gestión -->
+    <div class="admin-nav-tabs">
+      <div class="admin-nav-tab active" id="tab-products-btn">
+        <span>📦</span>
+        <span>Productos & Inventario</span>
+      </div>
+      <div class="admin-nav-tab" id="tab-clients-btn">
+        <span>🏢</span>
+        <span>Clientes & Enlaces Únicos</span>
+        <span id="badge-total-clients" class="badge badge-category" style="margin-left: 0.25rem;">0</span>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         VISTA 1: GESTIÓN DE PRODUCTOS E INVENTARIO
+         ======================================================== -->
+    <section id="view-products">
+      <!-- Encabezado de Productos -->
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+        <div>
+          <h1 style="font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em;" id="catalog-heading-title">
+            Productos del Catálogo
+          </h1>
+          <p style="color: var(--text-muted); font-size: 0.875rem;" id="catalog-heading-subtitle">
+            Gestiona los productos y unidades en stock del cliente seleccionado.
+          </p>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <button id="btn-view-gallery" class="btn btn-secondary">
+            <span>📁</span>
+            <span>Galería de Imágenes</span>
+          </button>
+
+          <button id="btn-new-product" class="btn btn-primary">
+            <span>➕</span>
+            <span>Nuevo Producto</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tarjetas KPIs del Catálogo Seleccionado -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">Total Productos</span>
+          <span class="kpi-value" id="kpi-total-products">--</span>
+          <span class="kpi-subtext">Registrados en este catálogo</span>
+        </div>
+
+        <div class="kpi-card">
+          <span class="kpi-label">Valor de Inventario</span>
+          <span class="kpi-value" id="kpi-total-value" style="color: var(--primary);">--</span>
+          <span class="kpi-subtext">Valoración total estimada</span>
+        </div>
+
+        <div class="kpi-card">
+          <span class="kpi-label">Stock Bajo (≤ 5 un.)</span>
+          <span class="kpi-value" id="kpi-low-stock" style="color: #d97706;">--</span>
+          <span class="kpi-subtext">Requieren reposición</span>
+        </div>
+
+        <div class="kpi-card">
+          <span class="kpi-label">Productos Agotados</span>
+          <span class="kpi-value" id="kpi-out-of-stock" style="color: #dc2626;">--</span>
+          <span class="kpi-subtext">Sin inventario disponible</span>
+        </div>
+      </div>
+
+      <!-- Tabla de Productos -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <div style="font-weight: 700; font-size: 1.125rem;">
+            Listado de Ítems
+          </div>
+
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+            <input 
+              type="text" 
+              id="search-admin" 
+              class="form-control" 
+              placeholder="Buscar por nombre..." 
+              style="width: 220px; padding: 0.4375rem 0.75rem; font-size: 0.875rem;"
+            />
+
+            <select id="filter-admin-category" class="form-select" style="font-size: 0.875rem;">
+              <option value="all">Todas las Categorías</option>
+            </select>
+
+            <select id="filter-admin-stock" class="form-select" style="font-size: 0.875rem;">
+              <option value="all">Todo el stock</option>
+              <option value="in_stock">En stock</option>
+              <option value="low_stock">Stock bajo (≤ 5)</option>
+              <option value="out_of_stock">Agotados (0)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th style="width: 50px;">ID</th>
+                <th style="width: 60px;">Imagen</th>
+                <th>Producto y Descripción</th>
+                <th style="width: 140px;">Cliente / Catálogo</th>
+                <th style="width: 130px;">Categoría</th>
+                <th style="width: 100px;">Precio</th>
+                <th style="width: 140px;">Inventario</th>
+                <th style="width: 130px; text-align: center;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="admin-table-body">
+              <!-- Se puebla dinámicamente -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VISTA 2: GESTIÓN DE CLIENTES Y GENERACIÓN DE ENLACES ÚNICOS
+         ======================================================== -->
+    <section id="view-clients" style="display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+        <div>
+          <h1 style="font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em;">
+            Catálogos de Clientes Generados
+          </h1>
+          <p style="color: var(--text-muted); font-size: 0.875rem;">
+            Cada cliente cuenta con un enlace único independiente que muestra únicamente sus productos sin requerir inicio de sesión.
+          </p>
+        </div>
+
+        <button id="btn-new-client" class="btn btn-primary">
+          <span>➕</span>
+          <span>Generar Nuevo Catálogo</span>
+        </button>
+      </div>
+
+      <!-- Cuadrícula de Clientes y sus Enlaces Únicos -->
+      <div id="clients-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.5rem;">
+        <!-- Se puebla dinámicamente con admin.js -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================================
+       MODALES
+       ======================================================== -->
+
+  <!-- MODAL: Crear / Editar Cliente -->
+  <div id="client-form-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 580px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="client-modal-title">Generar Nuevo Catálogo de Cliente</h3>
+        <button id="close-client-modal" class="modal-close">✕</button>
+      </div>
+
+      <form id="client-form">
+        <div class="modal-body">
+          <input type="hidden" id="client-form-id" />
+
+          <div class="form-group">
+            <label for="client-name" class="form-label">Nombre del Cliente o Comercio *</label>
+            <input type="text" id="client-name" class="form-control" required placeholder="Ej: Papelería & Arte Creativo" />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="client-slug" class="form-label">Slug de Enlace Único *</label>
+              <input type="text" id="client-slug" class="form-control" required placeholder="ej: arte-creativo" />
+              <small style="color: var(--text-subtle); font-size: 0.75rem;">Define la URL pública única del catálogo</small>
+            </div>
+
+            <div class="form-group">
+              <label for="client-whatsapp" class="form-label">WhatsApp de Pedidos *</label>
+              <input type="text" id="client-whatsapp" class="form-control" required placeholder="+584121234567" />
+              <small style="color: var(--text-subtle); font-size: 0.75rem;">Número al que llegarán los pedidos</small>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="client-email" class="form-label">Correo Electrónico (Opcional)</label>
+              <input type="email" id="client-email" class="form-control" placeholder="contacto@comercio.com" />
+            </div>
+
+            <div class="form-group">
+              <label for="client-color" class="form-label">Color de Marca</label>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="color" id="client-color-picker" value="#4f46e5" style="width: 44px; height: 38px; padding: 2px; border-radius: var(--radius-sm); border: 1px solid var(--border-light); cursor: pointer;" />
+                <input type="text" id="client-color" class="form-control" value="#4f46e5" placeholder="#4f46e5" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Selección de Moneda del Catálogo -->
+          <div class="form-row">
+            <div class="form-group">
+              <label for="client-currency-preset" class="form-label">Tipo de Moneda del Catálogo *</label>
+              <select id="client-currency-preset" class="form-select">
+                <option value="USD|$">USD ($) - Dólares Estadounidenses</option>
+                <option value="VES|Bs.">VES (Bs.) - Bolívares Venezolanos</option>
+                <option value="EUR|€">EUR (€) - Euros</option>
+                <option value="COP|$">COP ($) - Pesos Colombianos</option>
+                <option value="MXN|$">MXN ($) - Pesos Mexicanos</option>
+                <option value="PEN|S/">PEN (S/) - Soles Peruanos</option>
+                <option value="CLP|$">CLP ($) - Pesos Chilenos</option>
+                <option value="ARS|$">ARS ($) - Pesos Argentinos</option>
+                <option value="CUSTOM">⚙️ Otra moneda personalizada...</option>
+              </select>
+            </div>
+
+            <div class="form-group" id="custom-currency-group" style="display: none;">
+              <label class="form-label">Símbolo y Código ISO</label>
+              <div style="display: flex; gap: 0.5rem;">
+                <input type="text" id="client-currency-symbol" class="form-control" placeholder="Símbolo (ej: Bs.)" value="$" style="width: 45%;" />
+                <input type="text" id="client-currency-code" class="form-control" placeholder="Código (ej: VES)" value="USD" style="width: 55%;" />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="client-desc" class="form-label">Descripción de Bienvenida en el Catálogo</label>
+            <textarea id="client-desc" class="form-control" rows="2" placeholder="Breve mensaje o especialidad de la tienda para sus clientes..."></textarea>
+          </div>
+
+          <!-- Personalización Visual: Logotipo de la Tienda -->
+          <div class="form-group">
+            <label class="form-label">Logotipo de la Tienda</label>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
+              <input type="file" id="client-logo-file" accept="image/jpeg,image/png,image/webp" style="display: none;" />
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('client-logo-file').click()">
+                📤 Subir Logo
+              </button>
+              <button type="button" id="btn-pick-client-logo" class="btn btn-secondary btn-sm">
+                📁 Elegir de 'productos/'
+              </button>
+            </div>
+            <input type="text" id="client-logo-url" class="form-control" placeholder="O ruta del logo: /productos/logo.png" />
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem;">
+              <div style="width: 50px; height: 50px; border-radius: 50%; border: 2px dashed var(--border-light); overflow: hidden; background: #fff; display: flex; align-items: center; justify-content: center;">
+                <img id="client-logo-preview" src="" alt="Preview Logo" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
+                <span id="client-logo-placeholder" style="font-size: 1.25rem;">🏷️</span>
+              </div>
+              <span style="font-size: 0.75rem; color: var(--text-muted);">Aparecerá en el encabezado y en el banner principal del catálogo</span>
+            </div>
+          </div>
+
+          <!-- Personalización Visual: Foto de Portada / Banner del Nombre -->
+          <div class="form-group">
+            <label class="form-label">Foto de Portada / Banner del Catálogo</label>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
+              <input type="file" id="client-cover-file" accept="image/jpeg,image/png,image/webp" style="display: none;" />
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('client-cover-file').click()">
+                📤 Subir Portada
+              </button>
+              <button type="button" id="btn-pick-client-cover" class="btn btn-secondary btn-sm">
+                📁 Elegir de 'productos/'
+              </button>
+            </div>
+            <input type="text" id="client-cover-url" class="form-control" placeholder="O ruta de la foto de portada: /productos/portada.jpg" />
+            <div class="banner-preview-box">
+              <span id="client-cover-placeholder" style="color: var(--text-muted); font-size: 0.8125rem;">
+                Sin foto de portada seleccionada (se usará el degradado predeterminado)
+              </span>
+              <img id="client-cover-preview" src="" alt="Preview Portada" style="display: none;" />
+            </div>
+            <small style="color: var(--text-subtle); font-size: 0.75rem; display: block; margin-top: 0.25rem;">
+              Esta imagen se colocará de fondo en el recuadro rectangular donde está el nombre grande de la tienda.
+            </small>
+          </div>
+
+          <!-- Previsualización del Enlace Único Generado -->
+          <div style="background: var(--bg-surface-secondary); padding: 0.875rem; border-radius: var(--radius-md); border: 1px dashed var(--border-light);">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.25rem;">🔗 Enlace Único de Acceso Público:</div>
+            <div style="font-family: monospace; font-size: 0.875rem; color: var(--primary); font-weight: 700;" id="client-link-preview">
+              /c/tu-catalogo
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
+              Cualquier usuario o cliente final podrá explorar este catálogo y ordenar sin necesidad de iniciar sesión.
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancel-client-btn" class="btn btn-secondary">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar Catálogo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Crear / Editar Producto -->
+  <div id="product-form-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="form-modal-title">Registrar Nuevo Producto</h3>
+        <button id="close-form-modal" class="modal-close">✕</button>
+      </div>
+
+      <form id="product-form">
+        <div class="modal-body">
+          <input type="hidden" id="prod-id" />
+
+          <div class="form-group">
+            <label for="prod-client-id" class="form-label">Cliente / Catálogo Asociado *</label>
+            <select id="prod-client-id" class="form-select" required style="width: 100%;">
+              <!-- Se puebla con los clientes registrados -->
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="prod-name" class="form-label">Nombre del Producto *</label>
+            <input type="text" id="prod-name" class="form-control" required placeholder="Ej: Pistola de Silicona 20W" />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="prod-category" class="form-label">Categoría *</label>
+              <input type="text" id="prod-category" list="category-options" class="form-control" required placeholder="Ej: Herramientas" />
+              <datalist id="category-options"></datalist>
+            </div>
+
+            <div class="form-group">
+              <label for="prod-price" class="form-label">Precio ($) *</label>
+              <input type="number" id="prod-price" class="form-control" step="0.01" min="0" required placeholder="0.00" />
+            </div>
+
+            <div class="form-group">
+              <label for="prod-stock" class="form-label">Inventario (Unidades) *</label>
+              <input type="number" id="prod-stock" class="form-control" step="1" min="0" required placeholder="10" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="prod-description" class="form-label">Descripción Detallada</label>
+            <textarea id="prod-description" class="form-control" rows="3" placeholder="Detalles de fabricación, uso y características..."></textarea>
+          </div>
+
+          <!-- Opciones de Imagen -->
+          <div class="form-group">
+            <label class="form-label">Imagen del Producto</label>
+            
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
+              <input type="file" id="prod-image-file" accept="image/jpeg,image/png,image/webp" style="display: none;" />
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('prod-image-file').click()">
+                📤 Subir desde PC
+              </button>
+
+              <button type="button" id="btn-pick-gallery" class="btn btn-secondary btn-sm">
+                📁 Elegir de 'productos/'
+              </button>
+            </div>
+
+            <input 
+              type="text" 
+              id="prod-image-url" 
+              class="form-control" 
+              placeholder="O ingresa la ruta: /productos/nombre_imagen.jpeg" 
+            />
+
+            <!-- Caja de Previsualización -->
+            <div class="image-preview-box">
+              <span id="image-preview-placeholder" style="color: var(--text-muted); font-size: 0.8125rem;">
+                Sin imagen seleccionada para previsualizar
+              </span>
+              <img id="image-preview" src="" alt="Vista previa" style="display: none;" />
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancel-form-btn" class="btn btn-secondary">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar Producto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Galería de Imágenes Existentes -->
+  <div id="gallery-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 800px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Imágenes en Carpeta 'productos/'</h3>
+        <button id="close-gallery-modal" class="modal-close">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Estas son las imágenes físicas encontradas en el proyecto. Puedes asociarlas a cualquier producto de tus clientes.
+        </p>
+
+        <div id="gallery-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; max-height: 480px; overflow-y: auto; padding: 0.25rem;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmar Eliminación (Producto o Cliente) -->
+  <div id="delete-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title" style="color: #ef4444;" id="delete-modal-title">Confirmar Eliminación</h3>
+        <button id="close-delete-modal" class="modal-close">✕</button>
+      </div>
+
+      <div class="modal-body" style="text-align: center;">
+        <span style="font-size: 2.75rem; display: block; margin-bottom: 0.5rem;">⚠️</span>
+        <h4 style="font-size: 1.125rem; font-weight: 700; margin-bottom: 0.5rem;" id="delete-item-heading">
+          ¿Estás seguro de eliminar este elemento?
+        </h4>
+        <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1rem;" id="delete-item-desc">
+          Esta acción removerá el registro definitivamente del sistema.
+        </p>
+        <div style="background: var(--bg-surface-secondary); padding: 0.75rem; border-radius: var(--radius-md); font-weight: 600;" id="delete-item-info">
+          --
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" id="cancel-delete-btn" class="btn btn-secondary">Cancelar</button>
+        <button type="button" id="confirm-delete-btn" class="btn btn-danger">Sí, Eliminar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notificaciones Toast -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="/js/env-config.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>
