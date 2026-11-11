@@ -27,7 +27,11 @@ const adminState = {
   activeEditingProductId: null,
   activeEditingClientId: null,
   deleteTarget: null, // { type: 'product'|'client', id: ... }
-  galleryTarget: 'product' // 'product' | 'client-logo' | 'client-cover'
+  galleryTarget: 'product', // 'product' | 'client-logo' | 'client-cover' | 'bulk-row'
+  bulk: {
+    rows: [],
+    pickingRowIndex: null
+  }
 };
 
 // DOM Elements
@@ -57,6 +61,7 @@ const catalogHeadingSubtitle = document.getElementById('catalog-heading-subtitle
 
 // Modales
 const productFormModal = document.getElementById('product-form-modal');
+const bulkUploadModal = document.getElementById('bulk-upload-modal');
 const clientFormModal = document.getElementById('client-form-modal');
 const galleryModal = document.getElementById('gallery-modal');
 const deleteModal = document.getElementById('delete-modal');
@@ -160,6 +165,14 @@ function setupEventListeners() {
     openProductForm('create');
   });
 
+  // Botón Carga Masiva (Excel / CSV)
+  const btnBulkUpload = document.getElementById('btn-bulk-upload');
+  if (btnBulkUpload) {
+    btnBulkUpload.addEventListener('click', () => {
+      openBulkUploadModal();
+    });
+  }
+
   // Botón Nuevo Cliente
   document.getElementById('btn-new-client').addEventListener('click', () => {
     openClientForm('create');
@@ -205,6 +218,7 @@ function setupEventListeners() {
   setupImageInputListeners();
   setupClientModalListeners();
   setupStorageExplorerListeners();
+  setupBulkUploadListeners();
 }
 
 function openAccountSettingsModal() {
@@ -556,9 +570,12 @@ function renderClientsGrid() {
         </div>
 
         <!-- Acciones del Catálogo del Cliente -->
-        <div style="display: flex; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; border-top: 1px solid var(--border-light);">
+        <div style="display: flex; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; border-top: 1px solid var(--border-light); flex-wrap: wrap;">
           <button class="btn btn-primary btn-sm" style="flex: 1;" onclick="manageClientCatalog(${Number(c.id)})">
             📦 Gestionar Productos
+          </button>
+          <button class="btn btn-secondary btn-sm" style="border-color: var(--primary); color: var(--primary); font-weight: 700;" onclick="openBulkUploadModal(${Number(c.id)})" title="Subir productos masivamente (Excel / CSV) a esta tienda">
+            📥 Masivo
           </button>
           <button class="btn btn-secondary btn-sm" onclick="editClient(${Number(c.id)})" title="Editar datos">
             ✏️
@@ -863,6 +880,8 @@ function openProductForm(mode, product = null) {
 
   if (mode === 'edit' && product) {
     adminState.activeEditingProductId = product.id;
+    const bulkBanner = document.getElementById('prod-modal-bulk-banner');
+    if (bulkBanner) bulkBanner.style.display = 'none';
     modalTitle.textContent = `Editar Producto #${product.id}`;
     document.getElementById('prod-id').value = product.id;
     prodClientSelect.value = product.cliente_id;
@@ -887,6 +906,8 @@ function openProductForm(mode, product = null) {
     }
   } else {
     adminState.activeEditingProductId = null;
+    const bulkBanner = document.getElementById('prod-modal-bulk-banner');
+    if (bulkBanner) bulkBanner.style.display = 'flex';
     modalTitle.textContent = 'Registrar Nuevo Producto';
     document.getElementById('prod-id').value = '';
     const wholesaleEl = document.getElementById('prod-wholesale-price');
@@ -1298,6 +1319,9 @@ function getSuggestedStoreFolderName() {
     if (formName || formSlug) {
       clientObj = { nombre: formName || '', slug: formSlug || '' };
     }
+  } else if (adminState.galleryTarget === 'bulk-row') {
+    const bulkClientId = document.getElementById('bulk-client-id')?.value;
+    clientObj = adminState.clients.find((c) => String(c.id) === String(bulkClientId));
   } else if (adminState.activeClientId !== 'all') {
     clientObj = adminState.clients.find((c) => String(c.id) === String(adminState.activeClientId));
   }
@@ -1655,6 +1679,12 @@ function selectGalleryImage(url) {
     preview.src = url;
     preview.style.display = 'block';
     document.getElementById('client-cover-placeholder').style.display = 'none';
+  } else if (adminState.galleryTarget === 'bulk-row') {
+    const rowIdx = adminState.bulk.pickingRowIndex;
+    if (rowIdx !== null && adminState.bulk.rows[rowIdx]) {
+      adminState.bulk.rows[rowIdx].imagen_url = url;
+      renderBulkPreviewTable();
+    }
   } else {
     const urlInput = document.getElementById('prod-image-url');
     const preview = document.getElementById('image-preview');
@@ -1668,6 +1698,517 @@ function selectGalleryImage(url) {
 
   galleryModal.classList.remove('active');
   showToast('Imagen seleccionada desde Storage.');
+}
+
+// ==========================================================
+// CARGA MASIVA DE PRODUCTOS POR TIENDA (EXCEL .XLSX / CSV)
+// ==========================================================
+
+function findMatchingStorageFolderForClient(clientObj) {
+  if (!clientObj) return '';
+  const norm = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '');
+
+  const targetName = norm(clientObj.nombre);
+  const targetSlug = norm(clientObj.slug);
+
+  const match = (adminState.storage.rootFolders || []).find((f) => {
+    const fn = norm(f.name);
+    return fn && (fn === targetName || fn === targetSlug || targetName.includes(fn) || fn.includes(targetName));
+  });
+  return match ? match.path : '';
+}
+
+function updateBulkTargetStoreBadge() {
+  const selectEl = document.getElementById('bulk-client-id');
+  const badgeEl = document.getElementById('bulk-target-store-badge');
+  const submitBtn = document.getElementById('submit-bulk-btn');
+  if (!selectEl || !badgeEl) return;
+
+  const client = adminState.clients.find((c) => String(c.id) === String(selectEl.value));
+  if (client) {
+    badgeEl.textContent = `🏪 Tienda destino exclusiva: ${client.nombre} (${client.moneda_simbolo || '$'})`;
+    if (submitBtn) {
+      submitBtn.textContent =
+        adminState.bulk.rows.length > 0
+          ? `🚀 Importar ${adminState.bulk.rows.length} Producto(s) a ${client.nombre}`
+          : `🚀 Importar Productos a ${client.nombre}`;
+    }
+  } else {
+    badgeEl.textContent = '';
+  }
+}
+
+function setupBulkUploadListeners() {
+  if (!bulkUploadModal) return;
+
+  const closeBtn = document.getElementById('close-bulk-modal');
+  const cancelBtn = document.getElementById('cancel-bulk-btn');
+  const switchFromProdBtn = document.getElementById('btn-switch-to-bulk');
+  if (switchFromProdBtn) {
+    switchFromProdBtn.addEventListener('click', () => {
+      const selectedClient = document.getElementById('prod-client-id')?.value || null;
+      closeProductForm();
+      openBulkUploadModal(selectedClient);
+    });
+  }
+  const clientSelect = document.getElementById('bulk-client-id');
+  const folderSelect = document.getElementById('bulk-storage-folder');
+  const fileInput = document.getElementById('bulk-file-input');
+  const btnXlsxTpl = document.getElementById('btn-download-xlsx-template');
+  const btnCsvTpl = document.getElementById('btn-download-csv-template');
+  const btnFolderXlsx = document.getElementById('btn-download-folder-xlsx');
+  const btnLoadFolderRows = document.getElementById('btn-load-folder-rows');
+  const btnAddRow = document.getElementById('btn-add-bulk-row');
+  const btnClearRows = document.getElementById('btn-clear-bulk-rows');
+  const submitBtn = document.getElementById('submit-bulk-btn');
+
+  if (closeBtn) closeBtn.addEventListener('click', closeBulkUploadModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeBulkUploadModal);
+
+  if (clientSelect) {
+    clientSelect.addEventListener('change', () => {
+      const client = adminState.clients.find((c) => String(c.id) === String(clientSelect.value));
+      const matchedFolder = findMatchingStorageFolderForClient(client);
+      if (folderSelect && matchedFolder) {
+        folderSelect.value = matchedFolder;
+      }
+      updateBulkTargetStoreBadge();
+    });
+  }
+
+  if (btnXlsxTpl) {
+    btnXlsxTpl.addEventListener('click', () => {
+      window.location.href = '/api/products/bulk/template?format=xlsx';
+    });
+  }
+
+  if (btnCsvTpl) {
+    btnCsvTpl.addEventListener('click', () => {
+      window.location.href = '/api/products/bulk/template?format=csv';
+    });
+  }
+
+  if (btnFolderXlsx) {
+    btnFolderXlsx.addEventListener('click', () => {
+      const folder = folderSelect ? folderSelect.value : '';
+      if (!folder) {
+        showToast('Selecciona primero la carpeta de fotos de la tienda en Storage.', 'error');
+        return;
+      }
+      window.location.href = `/api/products/bulk/template?format=xlsx&prefill=true&folder=${encodeURIComponent(folder)}`;
+    });
+  }
+
+  if (btnLoadFolderRows) {
+    btnLoadFolderRows.addEventListener('click', loadFolderImagesAsBulkRows);
+  }
+
+  if (btnAddRow) {
+    btnAddRow.addEventListener('click', () => {
+      adminState.bulk.rows.push({
+        nombre: '',
+        categoria: 'General',
+        precio: 0,
+        precio_mayor: null,
+        inventario: 10,
+        descripcion: '',
+        imagen_url: ''
+      });
+      renderBulkPreviewTable();
+    });
+  }
+
+  if (btnClearRows) {
+    btnClearRows.addEventListener('click', () => {
+      adminState.bulk.rows = [];
+      if (fileInput) fileInput.value = '';
+      const statusEl = document.getElementById('bulk-file-status');
+      if (statusEl) statusEl.textContent = 'Lista limpiada.';
+      renderBulkPreviewTable();
+    });
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener('change', handleBulkFileChange);
+  }
+
+  if (submitBtn) {
+    submitBtn.addEventListener('click', submitBulkProducts);
+  }
+}
+
+async function openBulkUploadModal(preselectedClientId = null) {
+  if (adminState.clients.length === 0) {
+    showToast('Primero registra una tienda/cliente para poder cargarle productos.', 'error');
+    switchTab('clients');
+    openClientForm('create');
+    return;
+  }
+
+  // Asegurar que la lista de carpetas raíz de Storage esté cargada
+  if (!adminState.storage.rootFolders || adminState.storage.rootFolders.length === 0) {
+    await loadLocalImages();
+  }
+
+  const clientSelect = document.getElementById('bulk-client-id');
+  const folderSelect = document.getElementById('bulk-storage-folder');
+  const fileInput = document.getElementById('bulk-file-input');
+  const statusEl = document.getElementById('bulk-file-status');
+
+  const targetClientId =
+    preselectedClientId !== null && preselectedClientId !== undefined
+      ? String(preselectedClientId)
+      : adminState.activeClientId !== 'all'
+        ? String(adminState.activeClientId)
+        : String(adminState.clients[0].id);
+
+  if (clientSelect) {
+    clientSelect.innerHTML = adminState.clients
+      .map(
+        (c) =>
+          `<option value="${c.id}" ${String(c.id) === targetClientId ? 'selected' : ''}>🏪 ${escapeHtml(c.nombre)} (${escapeHtml(c.moneda_codigo || 'USD')} ${escapeHtml(c.moneda_simbolo || '$')})</option>`
+      )
+      .join('');
+  }
+
+  const selectedClient = adminState.clients.find((c) => String(c.id) === targetClientId) || adminState.clients[0];
+  const matchedFolder = findMatchingStorageFolderForClient(selectedClient);
+
+  if (folderSelect) {
+    let folderOpts = '<option value="">-- Sin carpeta específica --</option>';
+    (adminState.storage.rootFolders || []).forEach((rf) => {
+      folderOpts += `<option value="${escapeHtml(rf.path)}" ${rf.path === matchedFolder ? 'selected' : ''}>📁 ${escapeHtml(rf.name)}</option>`;
+    });
+    folderSelect.innerHTML = folderOpts;
+  }
+
+  if (fileInput) fileInput.value = '';
+  if (statusEl) statusEl.textContent = 'Ningún archivo cargado aún.';
+
+  adminState.bulk.rows = [];
+  adminState.bulk.pickingRowIndex = null;
+  renderBulkPreviewTable();
+  updateBulkTargetStoreBadge();
+
+  bulkUploadModal.classList.add('active');
+}
+
+function closeBulkUploadModal() {
+  if (bulkUploadModal) {
+    bulkUploadModal.classList.remove('active');
+  }
+}
+
+async function handleBulkFileChange(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+
+  const statusEl = document.getElementById('bulk-file-status');
+  const folderSelect = document.getElementById('bulk-storage-folder');
+  const storageFolder = folderSelect ? folderSelect.value : '';
+
+  if (statusEl) {
+    statusEl.textContent = `⏳ Procesando "${file.name}"...`;
+  }
+
+  const formData = new FormData();
+  formData.append('archivo', file);
+  formData.append('storage_folder', storageFolder);
+
+  try {
+    const res = await fetch('/api/products/bulk/parse', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${adminState.token}`
+      },
+      body: formData
+    });
+
+    const result = await res.json();
+    if (!res.ok || !result.success) {
+      showToast(result.error || 'Error al analizar el archivo Excel/CSV.', 'error');
+      if (statusEl) statusEl.textContent = '⚠️ Error al leer el archivo.';
+      return;
+    }
+
+    adminState.bulk.rows = result.data || [];
+    if (statusEl) {
+      statusEl.textContent = `✅ "${file.name}" cargado (${adminState.bulk.rows.length} fila${adminState.bulk.rows.length === 1 ? '' : 's'})`;
+    }
+    renderBulkPreviewTable();
+    showToast(`Se cargaron ${adminState.bulk.rows.length} productos en la vista previa.`);
+  } catch (err) {
+    showToast('Error de red al procesar el archivo.', 'error');
+    if (statusEl) statusEl.textContent = '⚠️ Error de conexión.';
+  }
+}
+
+async function loadFolderImagesAsBulkRows() {
+  const folderSelect = document.getElementById('bulk-storage-folder');
+  const folder = folderSelect ? folderSelect.value : '';
+  const statusEl = document.getElementById('bulk-file-status');
+
+  if (!folder) {
+    showToast('Selecciona primero la carpeta de fotos de la tienda en Storage.', 'error');
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = `⏳ Cargando imágenes de la carpeta "${folder}"...`;
+
+  try {
+    const res = await fetch(`/api/admin/storage?prefix=${encodeURIComponent(folder)}`, {
+      headers: { 'Authorization': `Bearer ${adminState.token}` }
+    });
+    const result = await res.json();
+    if (!res.ok || !result.success) {
+      showToast(result.error || 'No se pudo leer la carpeta de Storage.', 'error');
+      return;
+    }
+
+    const files = result.files || [];
+    if (files.length === 0) {
+      showToast(`La carpeta "${folder}" no tiene imágenes aún.`, 'error');
+      if (statusEl) statusEl.textContent = `La carpeta "${folder}" está vacía.`;
+      return;
+    }
+
+    adminState.bulk.rows = files.map((f, idx) => {
+      const cleanName = f.name
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[_-]+/g, ' ')
+        .trim();
+      return {
+        nombre: cleanName || `Producto ${idx + 1}`,
+        categoria: 'General',
+        precio: 0,
+        precio_mayor: null,
+        inventario: 10,
+        descripcion: '',
+        imagen_url: f.url
+      };
+    });
+
+    if (statusEl) {
+      statusEl.textContent = `✅ ${files.length} foto(s) cargadas desde la carpeta "${folder}".`;
+    }
+    renderBulkPreviewTable();
+    showToast(`Se cargaron ${files.length} fotos de "${folder}". Completa nombres y precios para importar.`);
+  } catch (err) {
+    showToast('Error al cargar imágenes de la carpeta.', 'error');
+  }
+}
+
+function renderBulkPreviewTable() {
+  const container = document.getElementById('bulk-preview-container');
+  const tbody = document.getElementById('bulk-preview-tbody');
+  const summaryEl = document.getElementById('bulk-preview-summary');
+  const submitBtn = document.getElementById('submit-bulk-btn');
+  const rows = adminState.bulk.rows || [];
+
+  if (!container || !tbody) return;
+
+  if (rows.length === 0) {
+    container.style.display = 'none';
+    tbody.innerHTML = '';
+    if (submitBtn) submitBtn.disabled = true;
+    updateBulkTargetStoreBadge();
+    return;
+  }
+
+  container.style.display = 'block';
+  if (summaryEl) {
+    summaryEl.textContent = `3. Previsualización y Edición Rápida (${rows.length} producto${rows.length === 1 ? '' : 's'})`;
+  }
+  if (submitBtn) submitBtn.disabled = false;
+  updateBulkTargetStoreBadge();
+
+  tbody.innerHTML = rows
+    .map((r, idx) => {
+      const thumbUrl = r.imagen_url || 'https://placehold.co/80x80/e2e8f0/475569?text=IMG';
+      const mayorVal = r.precio_mayor !== null && r.precio_mayor !== undefined && r.precio_mayor !== '' ? r.precio_mayor : '';
+      return `
+        <tr>
+          <td style="font-weight: 700; color: var(--text-muted);">${idx + 1}</td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <img
+                src="${escapeHtml(thumbUrl)}"
+                alt="Thumb"
+                style="width: 38px; height: 38px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border-light); background: #fff;"
+                onerror="this.src='https://placehold.co/80x80/e2e8f0/475569?text=IMG';"
+              />
+              <button type="button" class="btn btn-secondary btn-sm" style="padding: 0.25rem 0.45rem; font-size: 0.75rem;" onclick="pickBulkRowImage(${idx})" title="Elegir imagen desde Storage">
+                🗂️
+              </button>
+            </div>
+          </td>
+          <td>
+            <input
+              type="text"
+              class="form-control"
+              style="padding: 0.3rem 0.5rem; font-size: 0.8125rem;"
+              value="${escapeHtml(r.nombre)}"
+              placeholder="Nombre del producto *"
+              oninput="updateBulkRowField(${idx}, 'nombre', this.value)"
+            />
+          </td>
+          <td>
+            <input
+              type="text"
+              class="form-control"
+              list="category-options"
+              style="padding: 0.3rem 0.5rem; font-size: 0.8125rem;"
+              value="${escapeHtml(r.categoria || 'General')}"
+              placeholder="Categoría"
+              oninput="updateBulkRowField(${idx}, 'categoria', this.value)"
+            />
+          </td>
+          <td>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              class="form-control"
+              style="padding: 0.3rem 0.5rem; font-size: 0.8125rem;"
+              value="${r.precio !== undefined && r.precio !== null ? r.precio : 0}"
+              oninput="updateBulkRowField(${idx}, 'precio', this.value)"
+            />
+          </td>
+          <td>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              class="form-control"
+              style="padding: 0.3rem 0.5rem; font-size: 0.8125rem;"
+              value="${mayorVal}"
+              placeholder="Opcional"
+              oninput="updateBulkRowField(${idx}, 'precio_mayor', this.value)"
+            />
+          </td>
+          <td>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              class="form-control"
+              style="padding: 0.3rem 0.5rem; font-size: 0.8125rem;"
+              value="${r.inventario !== undefined && r.inventario !== null ? r.inventario : 10}"
+              oninput="updateBulkRowField(${idx}, 'inventario', this.value)"
+            />
+          </td>
+          <td>
+            <input
+              type="text"
+              class="form-control"
+              style="padding: 0.3rem 0.5rem; font-size: 0.8125rem;"
+              value="${escapeHtml(r.descripcion || '')}"
+              placeholder="Opcional..."
+              oninput="updateBulkRowField(${idx}, 'descripcion', this.value)"
+            />
+          </td>
+          <td style="text-align: center;">
+            <button type="button" class="btn btn-outline btn-sm" style="color: #ef4444; padding: 0.2rem 0.45rem;" onclick="removeBulkRow(${idx})" title="Quitar esta fila">
+              ✕
+            </button>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function updateBulkRowField(rowIndex, field, value) {
+  const row = adminState.bulk.rows[rowIndex];
+  if (!row) return;
+  if (field === 'precio') {
+    row.precio = value === '' ? 0 : parseFloat(value);
+  } else if (field === 'precio_mayor') {
+    row.precio_mayor = value === '' || Number(value) <= 0 ? null : parseFloat(value);
+  } else if (field === 'inventario') {
+    row.inventario = value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0);
+  } else {
+    row[field] = value;
+  }
+}
+
+function removeBulkRow(rowIndex) {
+  adminState.bulk.rows.splice(rowIndex, 1);
+  renderBulkPreviewTable();
+}
+
+function pickBulkRowImage(rowIndex) {
+  adminState.bulk.pickingRowIndex = rowIndex;
+  const folderSelect = document.getElementById('bulk-storage-folder');
+  if (folderSelect && folderSelect.value) {
+    adminState.storage.prefix = folderSelect.value;
+  }
+  openGalleryModal(true, 'bulk-row');
+}
+
+async function submitBulkProducts() {
+  const clientSelect = document.getElementById('bulk-client-id');
+  const submitBtn = document.getElementById('submit-bulk-btn');
+  const cliente_id = clientSelect ? clientSelect.value : '';
+
+  if (!cliente_id || cliente_id === 'all') {
+    showToast('Selecciona la tienda específica a la que pertenecen estos productos.', 'error');
+    return;
+  }
+
+  const validRows = (adminState.bulk.rows || []).filter((r) => r && String(r.nombre || '').trim() !== '');
+  if (validRows.length === 0) {
+    showToast('Agrega al menos un producto con nombre válido para importar.', 'error');
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Importando productos...';
+  }
+
+  try {
+    const res = await fetch('/api/products/bulk', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminState.token}`
+      },
+      body: JSON.stringify({
+        cliente_id: Number(cliente_id),
+        products: validRows
+      })
+    });
+
+    const result = await res.json();
+    if (res.ok && result.success) {
+      showToast(result.message || `¡${result.count} productos importados con éxito!`);
+      closeBulkUploadModal();
+
+      // Enfocar el panel en la tienda donde se acaban de subir los productos
+      adminState.activeClientId = String(cliente_id);
+      localStorage.setItem('admin_active_client_id', adminState.activeClientId);
+      await loadClients();
+      updateActiveCatalogLink();
+      updateHeadings();
+      await Promise.all([loadProducts(), loadStats(), loadCategories()]);
+      switchTab('products');
+    } else {
+      showToast(result.error || 'No se pudo completar la carga masiva.', 'error');
+    }
+  } catch (err) {
+    showToast('Error de conexión durante la carga masiva.', 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      updateBulkTargetStoreBadge();
+    }
+  }
 }
 
 // Utilidad: Copiar al Portapapeles

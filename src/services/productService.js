@@ -126,6 +126,69 @@ class ProductService {
   }
 
   /**
+   * Crea múltiples productos en lote para un cliente específico (respaldo SQLite)
+   */
+  static createBulk(cliente_id, productsList = []) {
+    if (!cliente_id || isNaN(Number(cliente_id)) || Number(cliente_id) <= 0) {
+      throw new Error('Debe seleccionar una tienda/catálogo específico para realizar la carga masiva.');
+    }
+
+    const parsedClienteId = Number(cliente_id);
+    const client = db.prepare('SELECT * FROM clientes WHERE id = ?').get(parsedClienteId);
+    if (!client) {
+      throw new Error('La tienda seleccionada no existe.');
+    }
+
+    if (!Array.isArray(productsList) || productsList.length === 0) {
+      throw new Error('No se encontraron productos válidos para importar.');
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const insertMany = db.transaction((items) => {
+      const created = [];
+      for (const raw of items) {
+        const nombre = String(raw.nombre || '').trim();
+        if (!nombre) continue;
+        const rawPrice = Number(raw.precio);
+        const precio = !isNaN(rawPrice) && rawPrice >= 0 ? Number(rawPrice.toFixed(2)) : 0;
+        const rawMayor = raw.precio_mayor !== undefined && raw.precio_mayor !== null && raw.precio_mayor !== ''
+          ? Number(raw.precio_mayor)
+          : null;
+        const precio_mayor = rawMayor !== null && !isNaN(rawMayor) && rawMayor > 0 ? Number(rawMayor.toFixed(2)) : null;
+        const rawInv = raw.inventario !== undefined && raw.inventario !== null && raw.inventario !== ''
+          ? Number(raw.inventario)
+          : 10;
+        const inventario = !isNaN(rawInv) && rawInv >= 0 ? Math.floor(rawInv) : 10;
+        const categoria = raw.categoria && String(raw.categoria).trim() ? String(raw.categoria).trim() : 'General';
+        const descripcion = raw.descripcion ? String(raw.descripcion).trim() : '';
+        const imagen_url =
+          raw.imagen_url && String(raw.imagen_url).trim()
+            ? String(raw.imagen_url).trim()
+            : 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
+
+        const res = stmt.run(parsedClienteId, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url);
+        created.push(this.getById(res.lastInsertRowid));
+      }
+      return created;
+    });
+
+    const products = insertMany(productsList);
+    if (products.length === 0) {
+      throw new Error('Ninguna fila contiene un nombre de producto válido para importar.');
+    }
+
+    return {
+      client,
+      count: products.length,
+      products
+    };
+  }
+
+  /**
    * Actualiza los datos de un producto
    */
   static update(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {

@@ -735,6 +735,104 @@ class SupabaseCatalogStore {
     return this.getProductById(inserted.id);
   }
 
+  /**
+   * Crea múltiples productos en lote vinculados estrictamente a una sola tienda (cliente_id)
+   */
+  static async createProductsBulk(cliente_id, productsList = []) {
+    if (!cliente_id || isNaN(Number(cliente_id)) || Number(cliente_id) <= 0) {
+      throw new Error('Debe seleccionar una tienda/catálogo específico para realizar la carga masiva.');
+    }
+
+    const parsedClienteId = Number(cliente_id);
+    const client = await this.getClientById(parsedClienteId);
+    if (!client) {
+      throw new Error('La tienda seleccionada no existe. Seleccione un catálogo válido.');
+    }
+
+    if (!Array.isArray(productsList) || productsList.length === 0) {
+      throw new Error('No se encontraron productos válidos para importar.');
+    }
+
+    const normalizedItems = [];
+    for (let i = 0; i < productsList.length; i++) {
+      const raw = productsList[i] || {};
+      const nombre = String(raw.nombre || '').trim();
+      if (!nombre) continue;
+
+      const rawPrice = Number(raw.precio);
+      const precio = !isNaN(rawPrice) && rawPrice >= 0 ? Number(rawPrice.toFixed(2)) : 0;
+
+      const rawMayor = raw.precio_mayor !== undefined && raw.precio_mayor !== null && raw.precio_mayor !== ''
+        ? Number(raw.precio_mayor)
+        : null;
+      const precio_mayor = rawMayor !== null && !isNaN(rawMayor) && rawMayor > 0 ? Number(rawMayor.toFixed(2)) : null;
+
+      const rawInv = raw.inventario !== undefined && raw.inventario !== null && raw.inventario !== ''
+        ? Number(raw.inventario)
+        : 10;
+      const inventario = !isNaN(rawInv) && rawInv >= 0 ? Math.floor(rawInv) : 10;
+
+      const categoria = raw.categoria && String(raw.categoria).trim() ? String(raw.categoria).trim() : 'General';
+      const descripcion = raw.descripcion && String(raw.descripcion).trim() ? String(raw.descripcion).trim() : null;
+      const imagen_url =
+        raw.imagen_url && String(raw.imagen_url).trim()
+          ? String(raw.imagen_url).trim()
+          : 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
+
+      normalizedItems.push({
+        cliente_id: parsedClienteId,
+        nombre,
+        descripcion,
+        precio,
+        precio_mayor,
+        inventario,
+        categoria,
+        imagen_url
+      });
+    }
+
+    if (normalizedItems.length === 0) {
+      throw new Error('Ninguna fila contiene un nombre de producto válido para importar.');
+    }
+
+    const rowsToInsert = normalizedItems.map((item) => ({
+      cliente_id: item.cliente_id,
+      nombre: item.nombre,
+      descripcion: item.descripcion,
+      precio: item.precio,
+      inventario: item.inventario,
+      imagen_url: item.imagen_url
+    }));
+
+    const { data: insertedRows, error } = await supabaseAdmin
+      .from('productos')
+      .insert(rowsToInsert)
+      .select();
+
+    if (error) {
+      throw new Error(error.message || 'Error al insertar el lote de productos en Supabase.');
+    }
+
+    const meta = await this._loadMeta(true);
+    (insertedRows || []).forEach((row, idx) => {
+      const sourceItem = normalizedItems[idx] || {};
+      meta.products[String(row.id)] = {
+        categoria: sourceItem.categoria || 'General',
+        precio_mayor: sourceItem.precio_mayor
+      };
+    });
+    await this._saveMeta(meta);
+
+    const clientsMap = new Map([[parsedClienteId, client]]);
+    const enriched = (insertedRows || []).map((row) => this.enrichProductRecord(row, meta.products, clientsMap));
+
+    return {
+      client,
+      count: enriched.length,
+      products: enriched
+    };
+  }
+
   static async updateProduct(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {
     const existing = await this.getProductById(id);
     if (!existing) {

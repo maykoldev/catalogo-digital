@@ -1,10 +1,25 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
 const ProductService = require('../services/productService');
 const SupabaseCatalogStore = require('../services/supabaseCatalogStore');
 const authMiddleware = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { supabase, supabaseAdmin } = require('../lib/supabaseClient');
+const {
+  parseXlsxBuffer,
+  parseCsvText,
+  mapMatrixToProducts,
+  generateXlsxTemplateBuffer,
+  generateCsvTemplateString
+} = require('../utils/spreadsheetParser');
+
+// Middleware en memoria para procesar hojas de cálculo (.xlsx y .csv)
+const uploadSpreadsheet = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
 
 // ==========================================
 // RUTAS DE PRODUCTOS (Consulta)
@@ -48,6 +63,214 @@ router.get('/products', async (req, res) => {
   } catch (error) {
     console.error('Error al obtener productos:', error);
     return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /api/products/bulk/template
+ * Descarga plantilla Excel (.xlsx) o CSV (.csv) para carga masiva de productos por tienda.
+ * Si se pasa ?folder=Marys&prefill=true (con token de admin), pre-llena las filas con las fotos de esa carpeta en Storage.
+ */
+router.get('/products/bulk/template', async (req, res) => {
+  try {
+    const format = String(req.query.format || 'xlsx').toLowerCase();
+    const folder = String(req.query.folder || '').trim();
+    const prefill = req.query.prefill === 'true';
+
+    let sampleRows = null;
+    if (prefill && folder && SupabaseCatalogStore.isAvailable) {
+      try {
+        const storageData = await SupabaseCatalogStore.listStorageContents({
+          bucket: 'productos',
+          prefix: folder
+        });
+        if (storageData && Array.isArray(storageData.files) && storageData.files.length > 0) {
+          sampleRows = [
+            ['nombre', 'categoria', 'precio', 'precio_mayor', 'inventario', 'descripcion', 'imagen_url'],
+            ...storageData.files.map((f, idx) => {
+              const cleanTitle = path
+                .basename(f.name, path.extname(f.name))
+                .replace(/[_-]+/g, ' ')
+                .trim();
+              return [
+                cleanTitle || `Producto ${idx + 1}`,
+                'General',
+                format === 'csv' ? '10.00' : 10,
+                format === 'csv' ? '' : '',
+                format === 'csv' ? '10' : 10,
+                '',
+                f.url
+              ];
+            })
+          ];
+        }
+      } catch (_) {}
+    }
+
+    const safeSuffix = folder ? `_${folder.replace(/[^a-zA-Z0-9_-]/g, '_')}` : '';
+
+    if (format === 'csv') {
+      const csvContent = generateCsvTemplateString(sampleRows);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="plantilla_productos${safeSuffix}.csv"`);
+      return res.send(csvContent);
+    }
+
+    const xlsxBuffer = generateXlsxTemplateBuffer(sampleRows);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="plantilla_productos${safeSuffix}.xlsx"`);
+    return res.send(xlsxBuffer);
+  } catch (error) {
+    console.error('Error generando plantilla masiva:', error);
+    return res.status(500).json({ success: false, error: 'No se pudo generar la plantilla.' });
+  }
+});
+
+/**
+ * POST /api/products/bulk/parse
+ * Analiza un archivo Excel (.xlsx) o CSV (.csv) y devuelve las filas listas para previsualizar
+ * vinculando opcionalmente nombres de imágenes con la carpeta de la tienda en Supabase Storage.
+ */
+router.post('/products/bulk/parse', authMiddleware, uploadSpreadsheet.single('archivo'), async (req, res) => {
+  try {
+    const storageFolder = String(req.body.storage_folder || req.query.storage_folder || '').trim();
+    let storageFiles = [];
+
+    if (storageFolder && SupabaseCatalogStore.isAvailable) {
+      try {
+        const contents = await SupabaseCatalogStore.listStorageContents({
+          bucket: 'productos',
+          prefix: storageFolder
+        });
+        storageFiles = contents.files || [];
+      } catch (_) {}
+    }
+
+    let matrix = [];
+    if (req.file) {
+      const ext = path.extname(req.file.originalname || '').toLowerCase();
+      const isXlsxHeader =
+        req.file.buffer &&
+        req.file.buffer.length >= 4 &&
+        req.file.buffer[0] === 0x50 &&
+        req.file.buffer[1] === 0x4b;
+
+      if (ext === '.xlsx' || isXlsxHeader) {
+        matrix = parseXlsxBuffer(req.file.buffer);
+      } else {
+        matrix = parseCsvText(req.file.buffer.toString('utf8'));
+      }
+    } else if (req.body && req.body.csv_text) {
+      matrix = parseCsvText(req.body.csv_text);
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Envíe un archivo Excel (.xlsx) o CSV (.csv) válido para procesar.'
+      });
+    }
+
+    const parsedProducts = mapMatrixToProducts(matrix, { storageFiles });
+    if (parsedProducts.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'El archivo no contiene filas de productos válidas. Verifique los encabezados (nombre, categoria, precio, precio_mayor, inventario, descripcion, imagen_url).'
+      });
+    }
+
+    return res.json({
+      success: true,
+      count: parsedProducts.length,
+      storage_folder: storageFolder,
+      data: parsedProducts
+    });
+  } catch (error) {
+    console.error('Error al parsear archivo masivo:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'No se pudo leer el archivo Excel/CSV.'
+    });
+  }
+});
+
+/**
+ * POST /api/products/bulk
+ * Importa masivamente un lote de productos asignándolos exclusivamente a la tienda indicada (cliente_id).
+ * Soporta tanto JSON ({ cliente_id, products: [...] }) como subida directa de archivo Excel/CSV.
+ */
+router.post('/products/bulk', authMiddleware, uploadSpreadsheet.single('archivo'), async (req, res) => {
+  try {
+    const cliente_id = req.body.cliente_id || req.query.cliente_id;
+    if (!cliente_id || cliente_id === 'all' || isNaN(Number(cliente_id)) || Number(cliente_id) <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Debe seleccionar una tienda específica (cliente_id) para importar los productos. Cada tienda maneja su propio catálogo independiente.'
+      });
+    }
+
+    let productsToInsert = [];
+
+    if (Array.isArray(req.body.products)) {
+      productsToInsert = req.body.products;
+    } else if (typeof req.body.products === 'string') {
+      try {
+        productsToInsert = JSON.parse(req.body.products);
+      } catch (_) {}
+    } else if (req.file) {
+      const storageFolder = String(req.body.storage_folder || '').trim();
+      let storageFiles = [];
+      if (storageFolder && SupabaseCatalogStore.isAvailable) {
+        try {
+          const contents = await SupabaseCatalogStore.listStorageContents({
+            bucket: 'productos',
+            prefix: storageFolder
+          });
+          storageFiles = contents.files || [];
+        } catch (_) {}
+      }
+
+      const ext = path.extname(req.file.originalname || '').toLowerCase();
+      const isXlsxHeader =
+        req.file.buffer &&
+        req.file.buffer.length >= 4 &&
+        req.file.buffer[0] === 0x50 &&
+        req.file.buffer[1] === 0x4b;
+
+      const matrix =
+        ext === '.xlsx' || isXlsxHeader
+          ? parseXlsxBuffer(req.file.buffer)
+          : parseCsvText(req.file.buffer.toString('utf8'));
+
+      productsToInsert = mapMatrixToProducts(matrix, { storageFiles });
+    }
+
+    if (!Array.isArray(productsToInsert) || productsToInsert.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No se recibieron productos válidos para importar.'
+      });
+    }
+
+    const result = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.createProductsBulk(cliente_id, productsToInsert)
+      : ProductService.createBulk(cliente_id, productsToInsert);
+
+    return res.status(201).json({
+      success: true,
+      message: `Se importaron ${result.count} producto(s) exitosamente en el catálogo de "${result.client.nombre}".`,
+      cliente_id: Number(cliente_id),
+      cliente_nombre: result.client.nombre,
+      count: result.count,
+      data: result.products
+    });
+  } catch (error) {
+    console.error('Error en carga masiva POST /api/products/bulk:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Error al realizar la carga masiva de productos.'
+    });
   }
 });
 
