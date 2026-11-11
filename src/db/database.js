@@ -117,7 +117,7 @@ if (!clientCols.some(c => c.name === 'moneda_codigo')) {
   }
 }
 
-// Migración para bases de datos existentes: asegurar columna cliente_id en productos
+// Migración para bases de datos existentes: asegurar columna cliente_id y precio_mayor en productos
 const productCols = db.prepare('PRAGMA table_info(productos)').all();
 const hasClienteId = productCols.some(c => c.name === 'cliente_id');
 if (!hasClienteId) {
@@ -125,6 +125,13 @@ if (!hasClienteId) {
     db.exec('ALTER TABLE productos ADD COLUMN cliente_id INTEGER DEFAULT 1;');
   } catch (e) {
     console.log('Nota de migración cliente_id:', e.message);
+  }
+}
+if (!productCols.some(c => c.name === 'precio_mayor')) {
+  try {
+    db.exec('ALTER TABLE productos ADD COLUMN precio_mayor REAL DEFAULT NULL;');
+  } catch (e) {
+    console.log('Nota de migración precio_mayor:', e.message);
   }
 }
 

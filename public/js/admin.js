@@ -746,7 +746,12 @@ function renderAdminTable(products) {
           <span class="badge badge-category">${escapeHtml(p.categoria)}</span>
         </td>
         <td style="font-weight: 700; font-size: 0.9375rem;">
-          ${escapeHtml(prodSymbol)}${Number(p.precio).toFixed(2)}
+          <div>${escapeHtml(prodSymbol)}${Number(p.precio).toFixed(2)}</div>
+          ${
+            p.precio_mayor !== undefined && p.precio_mayor !== null && Number(p.precio_mayor) > 0
+              ? `<div style="font-size: 0.72rem; color: #047857; font-weight: 700; margin-top: 2px;">Mayor: ${escapeHtml(prodSymbol)}${Number(p.precio_mayor).toFixed(2)}</div>`
+              : ''
+          }
         </td>
         <td>
           <div class="stock-stepper">
@@ -864,6 +869,10 @@ function openProductForm(mode, product = null) {
     document.getElementById('prod-name').value = product.nombre;
     document.getElementById('prod-category').value = product.categoria;
     document.getElementById('prod-price').value = product.precio;
+    document.getElementById('prod-wholesale-price').value =
+      product.precio_mayor !== undefined && product.precio_mayor !== null && Number(product.precio_mayor) > 0
+        ? product.precio_mayor
+        : '';
     document.getElementById('prod-stock').value = product.inventario;
     document.getElementById('prod-description').value = product.descripcion;
     document.getElementById('prod-image-url').value = product.imagen_url;
@@ -880,6 +889,8 @@ function openProductForm(mode, product = null) {
     adminState.activeEditingProductId = null;
     modalTitle.textContent = 'Registrar Nuevo Producto';
     document.getElementById('prod-id').value = '';
+    const wholesaleEl = document.getElementById('prod-wholesale-price');
+    if (wholesaleEl) wholesaleEl.value = '';
     preview.style.display = 'none';
     placeholder.style.display = 'flex';
   }
@@ -908,12 +919,19 @@ async function handleProductFormSubmit(e) {
   let formData;
   let headers = { 'Authorization': `Bearer ${adminState.token}` };
 
+  const rawWholesale = document.getElementById('prod-wholesale-price')?.value?.trim() || '';
+  const parsedWholesale =
+    rawWholesale !== '' && !isNaN(Number(rawWholesale)) && Number(rawWholesale) > 0
+      ? parseFloat(rawWholesale)
+      : null;
+
   if (hasFile) {
     formData = new FormData();
     formData.append('cliente_id', document.getElementById('prod-client-id').value);
     formData.append('nombre', document.getElementById('prod-name').value);
     formData.append('categoria', document.getElementById('prod-category').value);
     formData.append('precio', document.getElementById('prod-price').value);
+    formData.append('precio_mayor', parsedWholesale !== null ? String(parsedWholesale) : '');
     formData.append('inventario', document.getElementById('prod-stock').value);
     formData.append('descripcion', document.getElementById('prod-description').value);
     formData.append('imagen', fileInput.files[0]);
@@ -924,6 +942,7 @@ async function handleProductFormSubmit(e) {
       nombre: document.getElementById('prod-name').value,
       categoria: document.getElementById('prod-category').value,
       precio: parseFloat(document.getElementById('prod-price').value),
+      precio_mayor: parsedWholesale,
       inventario: parseInt(document.getElementById('prod-stock').value, 10),
       descripcion: document.getElementById('prod-description').value,
       imagen_url: document.getElementById('prod-image-url').value

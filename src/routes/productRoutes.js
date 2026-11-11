@@ -96,7 +96,7 @@ router.get('/categories', async (req, res) => {
  */
 router.post('/products', authMiddleware, upload.single('imagen'), async (req, res) => {
   try {
-    const { cliente_id, nombre, descripcion, precio, inventario, categoria, imagen_url } = req.body;
+    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url } = req.body;
 
     let finalImageUrl = imagen_url;
     if (req.file) {
@@ -120,6 +120,7 @@ router.post('/products', authMiddleware, upload.single('imagen'), async (req, re
           nombre,
           descripcion,
           precio,
+          precio_mayor,
           inventario,
           categoria,
           imagen_url: finalImageUrl
@@ -129,6 +130,7 @@ router.post('/products', authMiddleware, upload.single('imagen'), async (req, re
           nombre,
           descripcion,
           precio,
+          precio_mayor,
           inventario,
           categoria,
           imagen_url: finalImageUrl
@@ -151,7 +153,7 @@ router.post('/products', authMiddleware, upload.single('imagen'), async (req, re
  */
 router.put('/products/:id', authMiddleware, upload.single('imagen'), async (req, res) => {
   try {
-    const { cliente_id, nombre, descripcion, precio, inventario, categoria, imagen_url } = req.body;
+    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url } = req.body;
 
     let finalImageUrl = imagen_url;
     if (req.file) {
@@ -171,6 +173,7 @@ router.put('/products/:id', authMiddleware, upload.single('imagen'), async (req,
           nombre,
           descripcion,
           precio,
+          precio_mayor,
           inventario,
           categoria,
           imagen_url: finalImageUrl
@@ -180,6 +183,7 @@ router.put('/products/:id', authMiddleware, upload.single('imagen'), async (req,
           nombre,
           descripcion,
           precio,
+          precio_mayor,
           inventario,
           categoria,
           imagen_url: finalImageUrl
@@ -348,7 +352,7 @@ router.post('/admin/upload-image', authMiddleware, upload.single('imagen'), asyn
  */
 const handleRegisterSupabaseProducto = async (req, res) => {
   try {
-    const { nombre, descripcion, precio, cliente_id, categoria } = req.body;
+    const { nombre, descripcion, precio, precio_mayor, cliente_id, categoria } = req.body;
     let imagen_url = req.body.imagen_url || req.body.imagen || null;
 
     if (req.file) {
@@ -438,9 +442,16 @@ const handleRegisterSupabaseProducto = async (req, res) => {
     }
 
     const created = data && data[0] ? data[0] : recordToInsert;
-    if (categoria && created && created.id) {
+    if ((categoria || precio_mayor !== undefined) && created && created.id) {
       const meta = await SupabaseCatalogStore._loadMeta(true);
-      meta.products[String(created.id)] = { categoria: String(categoria).trim() };
+      const parsedMayor =
+        precio_mayor !== undefined && precio_mayor !== null && precio_mayor !== '' && !isNaN(Number(precio_mayor)) && Number(precio_mayor) > 0
+          ? Number(Number(precio_mayor).toFixed(2))
+          : null;
+      meta.products[String(created.id)] = {
+        categoria: categoria ? String(categoria).trim() : 'General',
+        precio_mayor: parsedMayor
+      };
       await SupabaseCatalogStore._saveMeta(meta);
     }
 

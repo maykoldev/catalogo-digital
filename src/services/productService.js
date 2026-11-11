@@ -78,7 +78,7 @@ class ProductService {
   /**
    * Crea un producto asociado a un cliente específico
    */
-  static create({ cliente_id, nombre, descripcion, precio, inventario, categoria, imagen_url }) {
+  static create({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {
     if (!cliente_id) {
       throw new Error('Debe especificar el cliente o empresa al que pertenece el producto.');
     }
@@ -101,9 +101,14 @@ class ProductService {
       throw new Error('El cliente especificado no existe.');
     }
 
+    const parsedMayor =
+      precio_mayor !== undefined && precio_mayor !== null && precio_mayor !== '' && !isNaN(Number(precio_mayor)) && Number(precio_mayor) > 0
+        ? Number(Number(precio_mayor).toFixed(2))
+        : null;
+
     const stmt = db.prepare(`
-      INSERT INTO productos (cliente_id, nombre, descripcion, precio, inventario, categoria, imagen_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -111,6 +116,7 @@ class ProductService {
       nombre.trim(),
       (descripcion || '').trim(),
       Number(precio),
+      parsedMayor,
       Math.floor(Number(inventario)),
       categoria.trim(),
       (imagen_url || '/placeholder.png').trim()
@@ -122,7 +128,7 @@ class ProductService {
   /**
    * Actualiza los datos de un producto
    */
-  static update(id, { cliente_id, nombre, descripcion, precio, inventario, categoria, imagen_url }) {
+  static update(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
@@ -132,6 +138,12 @@ class ProductService {
     const newNombre = nombre !== undefined ? nombre.trim() : existing.nombre;
     const newDesc = descripcion !== undefined ? descripcion.trim() : existing.descripcion;
     const newPrecio = precio !== undefined ? Number(precio) : existing.precio;
+    const newPrecioMayor =
+      precio_mayor !== undefined
+        ? precio_mayor !== null && precio_mayor !== '' && !isNaN(Number(precio_mayor)) && Number(precio_mayor) > 0
+          ? Number(Number(precio_mayor).toFixed(2))
+          : null
+        : existing.precio_mayor;
     const newInventario = inventario !== undefined ? Math.floor(Number(inventario)) : existing.inventario;
     const newCat = categoria !== undefined ? categoria.trim() : existing.categoria;
     const newImg = imagen_url !== undefined ? imagen_url.trim() : existing.imagen_url;
@@ -141,11 +153,11 @@ class ProductService {
 
     const stmt = db.prepare(`
       UPDATE productos
-      SET cliente_id = ?, nombre = ?, descripcion = ?, precio = ?, inventario = ?, categoria = ?, imagen_url = ?, updated_at = (datetime('now', 'localtime'))
+      SET cliente_id = ?, nombre = ?, descripcion = ?, precio = ?, precio_mayor = ?, inventario = ?, categoria = ?, imagen_url = ?, updated_at = (datetime('now', 'localtime'))
       WHERE id = ?
     `);
 
-    stmt.run(newClienteId, newNombre, newDesc, newPrecio, newInventario, newCat, newImg, Number(id));
+    stmt.run(newClienteId, newNombre, newDesc, newPrecio, newPrecioMayor, newInventario, newCat, newImg, Number(id));
     return this.getById(id);
   }
 

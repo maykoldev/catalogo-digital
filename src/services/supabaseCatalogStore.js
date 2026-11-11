@@ -136,9 +136,17 @@ class SupabaseCatalogStore {
     if (!p) return null;
     const extra = metaProducts[String(p.id)] || {};
     const owner = clientsMap.get(Number(p.cliente_id));
+    const rawMayor =
+      p.precio_mayor !== undefined && p.precio_mayor !== null ? p.precio_mayor : extra.precio_mayor;
+    const parsedMayor =
+      rawMayor !== undefined && rawMayor !== null && rawMayor !== '' && !isNaN(Number(rawMayor)) && Number(rawMayor) > 0
+        ? Number(Number(rawMayor).toFixed(2))
+        : null;
+
     return {
       ...p,
       precio: Number(p.precio) || 0,
+      precio_mayor: parsedMayor,
       inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 0,
       descripcion: p.descripcion || '',
       categoria: p.categoria || extra.categoria || 'General',
@@ -673,7 +681,7 @@ class SupabaseCatalogStore {
     return enriched;
   }
 
-  static async createProduct({ cliente_id, nombre, descripcion, precio, inventario, categoria, imagen_url }) {
+  static async createProduct({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {
     if (!cliente_id) {
       throw new Error('Debe seleccionar el cliente o tienda al que pertenece el producto.');
     }
@@ -688,6 +696,11 @@ class SupabaseCatalogStore {
       inventario !== undefined && inventario !== '' && !isNaN(Number(inventario))
         ? Math.max(0, Math.floor(Number(inventario)))
         : 0;
+
+    const parsedMayor =
+      precio_mayor !== undefined && precio_mayor !== null && precio_mayor !== '' && !isNaN(Number(precio_mayor)) && Number(precio_mayor) > 0
+        ? Number(Number(precio_mayor).toFixed(2))
+        : null;
 
     const { data: inserted, error } = await supabaseAdmin
       .from('productos')
@@ -713,13 +726,16 @@ class SupabaseCatalogStore {
 
     const cleanCat = categoria && categoria.trim() ? categoria.trim() : 'General';
     const meta = await this._loadMeta(true);
-    meta.products[String(inserted.id)] = { categoria: cleanCat };
+    meta.products[String(inserted.id)] = {
+      categoria: cleanCat,
+      precio_mayor: parsedMayor
+    };
     await this._saveMeta(meta);
 
     return this.getProductById(inserted.id);
   }
 
-  static async updateProduct(id, { cliente_id, nombre, descripcion, precio, inventario, categoria, imagen_url }) {
+  static async updateProduct(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {
     const existing = await this.getProductById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
@@ -751,11 +767,27 @@ class SupabaseCatalogStore {
       throw new Error(error.message || 'Error al actualizar el producto en Supabase.');
     }
 
-    if (categoria !== undefined && categoria.trim() !== '') {
-      const meta = await this._loadMeta(true);
-      meta.products[String(id)] = { categoria: categoria.trim() };
-      await this._saveMeta(meta);
-    }
+    const meta = await this._loadMeta(true);
+    const prevProdMeta = meta.products[String(id)] || {};
+    const nextCat =
+      categoria !== undefined && categoria.trim() !== ''
+        ? categoria.trim()
+        : prevProdMeta.categoria || existing.categoria || 'General';
+    const nextMayor =
+      precio_mayor !== undefined
+        ? precio_mayor !== null && precio_mayor !== '' && !isNaN(Number(precio_mayor)) && Number(precio_mayor) > 0
+          ? Number(Number(precio_mayor).toFixed(2))
+          : null
+        : prevProdMeta.precio_mayor !== undefined
+          ? prevProdMeta.precio_mayor
+          : existing.precio_mayor || null;
+
+    meta.products[String(id)] = {
+      ...prevProdMeta,
+      categoria: nextCat,
+      precio_mayor: nextMayor
+    };
+    await this._saveMeta(meta);
 
     return this.getProductById(id);
   }

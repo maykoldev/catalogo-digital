@@ -115,12 +115,15 @@ function showNoSlugMessage() {
 
 // Normalizar campos de cada producto proveniente de Supabase o catálogo local
 function normalizeProduct(p) {
+  const hasWholesale =
+    p.precio_mayor !== undefined && p.precio_mayor !== null && p.precio_mayor !== '' && Number(p.precio_mayor) > 0;
   return {
     id: p.id,
     cliente_id: p.cliente_id,
     nombre: p.nombre || 'Producto',
     descripcion: p.descripcion || 'Producto disponible en catálogo.',
     precio: Number(p.precio) || 0,
+    precio_mayor: hasWholesale ? Number(p.precio_mayor) : null,
     inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 10,
     categoria: p.categoria || 'General',
     imagen_url: p.imagen_url || 'https://placehold.co/400x400/e2e8f0/475569?text=Producto'
@@ -420,8 +423,15 @@ function renderProducts(products) {
           <p class="product-description-snippet">${p.descripcion}</p>
 
           <div class="product-footer">
-            <div class="product-price">
-              ${state.currencySymbol}${Number(p.precio).toFixed(2)}
+            <div>
+              <div class="product-price">
+                ${state.currencySymbol}${Number(p.precio).toFixed(2)}
+              </div>
+              ${
+                p.precio_mayor && Number(p.precio_mayor) > 0
+                  ? `<div style="font-size: 0.75rem; font-weight: 700; color: #047857; margin-top: 2px;">Al mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)}</div>`
+                  : ''
+              }
             </div>
             <div class="product-actions">
               <button class="btn btn-secondary btn-sm" onclick="openProductDetail(${p.id})" title="Ver detalles completos">
@@ -477,8 +487,18 @@ function openProductDetail(id) {
           <span class="badge ${stockBadgeClass}">${stockText}</span>
         </div>
         <h2 style="font-size: 1.5rem; font-weight: 800; line-height: 1.25; margin-bottom: 0.75rem;">${product.nombre}</h2>
-        <div style="font-size: 1.75rem; font-weight: 800; color: var(--primary); margin-bottom: 1.25rem;">
-          ${state.currencySymbol}${Number(product.precio).toFixed(2)}
+        <div style="display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
+          <div style="font-size: 1.75rem; font-weight: 800; color: var(--primary);">
+            ${state.currencySymbol}${Number(product.precio).toFixed(2)}
+            <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">(Detal)</span>
+          </div>
+          ${
+            product.precio_mayor && Number(product.precio_mayor) > 0
+              ? `<div style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; padding: 0.3rem 0.75rem; border-radius: var(--radius-md); font-size: 0.95rem; font-weight: 800;">
+                  🏷️ Al Mayor: ${state.currencySymbol}${Number(product.precio_mayor).toFixed(2)}
+                </div>`
+              : ''
+          }
         </div>
         
         <h4 style="font-size: 0.875rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; margin-bottom: 0.375rem;">Descripción</h4>
@@ -522,10 +542,15 @@ function consultProductWhatsApp(id) {
     ? state.clientInfo.telefono_whatsapp.replace(/[^0-9]/g, '')
     : '584120000000';
 
+  const wholesaleLine =
+    p.precio_mayor && Number(p.precio_mayor) > 0
+      ? `\n🏷️ Precio al Mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${state.currencyCode}`
+      : '';
+
   const text = `¡Hola *${state.clientInfo.nombre}*! Me interesa este producto de su catálogo:
 📦 *${p.nombre}*
 🏷️ Categoría: ${p.categoria}
-💵 Precio: ${state.currencySymbol}${Number(p.precio).toFixed(2)} ${state.currencyCode}
+💵 Precio: ${state.currencySymbol}${Number(p.precio).toFixed(2)} ${state.currencyCode}${wholesaleLine}
 ID: #${p.id}
 
 ¿Tienen disponibilidad para compra o envío inmediato?`;
