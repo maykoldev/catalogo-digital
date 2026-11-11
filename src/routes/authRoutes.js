@@ -3,6 +3,40 @@ const router = express.Router();
 const AuthService = require('../services/authService');
 const authMiddleware = require('../middleware/auth');
 
+// Protección anti-fuerza bruta por IP (máx. 5 intentos fallidos cada 15 minutos)
+const loginAttempts = new Map();
+const MAX_ATTEMPTS = 5;
+const LOCK_WINDOW_MS = 15 * 60 * 1000;
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const record = loginAttempts.get(ip);
+  if (!record) return { blocked: false };
+  if (now - record.firstAttemptAt > LOCK_WINDOW_MS) {
+    loginAttempts.delete(ip);
+    return { blocked: false };
+  }
+  if (record.count >= MAX_ATTEMPTS) {
+    const retryMinutes = Math.ceil((LOCK_WINDOW_MS - (now - record.firstAttemptAt)) / 60000);
+    return { blocked: true, retryMinutes };
+  }
+  return { blocked: false };
+}
+
+function recordFailedAttempt(ip) {
+  const now = Date.now();
+  const record = loginAttempts.get(ip);
+  if (!record || now - record.firstAttemptAt > LOCK_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, firstAttemptAt: now });
+  } else {
+    record.count += 1;
+  }
+}
+
+function clearAttempts(ip) {
+  loginAttempts.delete(ip);
+}
+
 /**
  * GET /api/auth/setup-status
  * Indica si el Super-Administrador ya creó su usuario y contraseña iniciales
@@ -56,9 +90,19 @@ router.post('/setup', async (req, res) => {
  * Autenticación de Super-Administrador con sus credenciales personalizadas
  */
 router.post('/login', async (req, res) => {
+  const clientIp = req.ip || req.connection?.remoteAddress || 'unknown';
+  const limitStatus = checkRateLimit(clientIp);
+  if (limitStatus.blocked) {
+    return res.status(429).json({
+      success: false,
+      error: `Demasiados intentos fallidos. Por seguridad, intenta nuevamente en ${limitStatus.retryMinutes} minuto(s).`
+    });
+  }
+
   try {
     const { username, password } = req.body || {};
     const { user, token } = await AuthService.authenticate(username, password);
+    clearAttempts(clientIp);
 
     return res.json({
       success: true,
@@ -68,6 +112,9 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     const status = error.status || 500;
+    if (status === 401) {
+      recordFailedAttempt(clientIp);
+    }
     if (status >= 500) {
       console.error('Error en POST /api/auth/login:', error);
     }

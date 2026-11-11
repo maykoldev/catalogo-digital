@@ -342,8 +342,8 @@ const handleRegisterSupabaseCliente = async (req, res) => {
   }
 };
 
-router.post('/clientes', upload.single('logo'), handleRegisterSupabaseCliente);
-router.post('/supabase/clientes', upload.single('logo'), handleRegisterSupabaseCliente);
+router.post('/clientes', authMiddleware, upload.single('logo'), handleRegisterSupabaseCliente);
+router.post('/supabase/clientes', authMiddleware, upload.single('logo'), handleRegisterSupabaseCliente);
 
 /**
  * GET /api/clientes (soporta filtro ?slug=...) y GET /api/clientes/:slugOrId

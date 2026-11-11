@@ -469,9 +469,9 @@ const handleRegisterSupabaseProducto = async (req, res) => {
   }
 };
 
-router.post('/productos', upload.single('imagen'), handleRegisterSupabaseProducto);
-router.post('/supabase/productos', upload.single('imagen'), handleRegisterSupabaseProducto);
-router.post('/supabase/products', upload.single('imagen'), handleRegisterSupabaseProducto);
+router.post('/productos', authMiddleware, upload.single('imagen'), handleRegisterSupabaseProducto);
+router.post('/supabase/productos', authMiddleware, upload.single('imagen'), handleRegisterSupabaseProducto);
+router.post('/supabase/products', authMiddleware, upload.single('imagen'), handleRegisterSupabaseProducto);
 
 /**
  * GET /api/productos/:cliente_id
