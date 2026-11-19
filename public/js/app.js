@@ -117,6 +117,11 @@ function showNoSlugMessage() {
 function normalizeProduct(p) {
   const hasWholesale =
     p.precio_mayor !== undefined && p.precio_mayor !== null && p.precio_mayor !== '' && Number(p.precio_mayor) > 0;
+  const fallbackImg = p.imagen_url || 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
+  const rawImages = Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes : [fallbackImg];
+  const cleanImages = Array.from(new Set(rawImages.map((u) => String(u || '').trim()).filter(Boolean)));
+  const finalImages = cleanImages.length > 0 ? cleanImages : [fallbackImg];
+
   return {
     id: p.id,
     cliente_id: p.cliente_id,
@@ -126,7 +131,8 @@ function normalizeProduct(p) {
     precio_mayor: hasWholesale ? Number(p.precio_mayor) : null,
     inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 10,
     categoria: p.categoria || 'General',
-    imagen_url: p.imagen_url || 'https://placehold.co/400x400/e2e8f0/475569?text=Producto'
+    imagen_url: finalImages[0],
+    imagenes: finalImages
   };
 }
 
@@ -411,6 +417,15 @@ function renderProducts(products) {
           <div class="product-category-overlay">
             <span class="badge badge-category">${p.categoria}</span>
           </div>
+          ${
+            p.imagenes && p.imagenes.length > 1
+              ? `<div style="position: absolute; top: 0.75rem; right: 0.75rem; z-index: 2;">
+                  <span class="badge" style="background: rgba(15, 23, 42, 0.78); color: #fff; font-size: 0.7rem; backdrop-filter: blur(4px);">
+                    📷 ${p.imagenes.length} fotos
+                  </span>
+                </div>`
+              : ''
+          }
           <div class="product-stock-overlay">
             <span class="badge ${stockBadgeClass}">${stockText}</span>
           </div>
@@ -453,7 +468,10 @@ function renderProducts(products) {
   }).join('');
 }
 
-// Modal de Detalle
+// Modal de Detalle con Galería / Carrusel Multi-Imagen
+let activeModalImages = [];
+let activeModalImageIndex = 0;
+
 function openProductDetail(id) {
   const product = state.allProducts.find(p => p.id === id) || state.products.find(p => p.id === id);
   if (!product) return;
@@ -471,15 +489,73 @@ function openProductDetail(id) {
     stockText = `¡Stock bajo! Solo quedan ${product.inventario} unidades`;
   }
 
+  activeModalImages =
+    Array.isArray(product.imagenes) && product.imagenes.length > 0
+      ? product.imagenes
+      : [product.imagen_url];
+  activeModalImageIndex = 0;
+  const hasMultipleImages = activeModalImages.length > 1;
+
   modalBody.innerHTML = `
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; align-items: start;">
-      <div style="border-radius: var(--radius-md); overflow: hidden; background: #f8fafc; border: 1px solid var(--border-light);">
-        <img 
-          src="${product.imagen_url}" 
-          alt="${product.nombre}" 
-          style="width: 100%; height: auto; max-height: 380px; object-fit: contain; margin: 0 auto;"
-          onerror="this.src='https://placehold.co/400x400/e2e8f0/475569?text=Sin+Imagen';"
-        />
+      <div>
+        <div style="position: relative; border-radius: var(--radius-md); overflow: hidden; background: #f8fafc; border: 1px solid var(--border-light); display: flex; align-items: center; justify-content: center; min-height: 280px;">
+          <img 
+            id="modal-detail-main-img"
+            src="${activeModalImages[0]}" 
+            alt="${product.nombre}" 
+            style="width: 100%; height: auto; max-height: 380px; object-fit: contain; margin: 0 auto; transition: opacity 0.15s ease;"
+            onerror="this.src='https://placehold.co/400x400/e2e8f0/475569?text=Sin+Imagen';"
+          />
+          ${
+            hasMultipleImages
+              ? `
+                <button
+                  type="button"
+                  onclick="stepDetailImage(-1)"
+                  aria-label="Imagen anterior"
+                  style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border-radius: 50%; background: rgba(15, 23, 42, 0.72); color: #fff; font-size: 1.25rem; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-md);"
+                >‹</button>
+                <button
+                  type="button"
+                  onclick="stepDetailImage(1)"
+                  aria-label="Imagen siguiente"
+                  style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border-radius: 50%; background: rgba(15, 23, 42, 0.72); color: #fff; font-size: 1.25rem; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-md);"
+                >›</button>
+                <span
+                  id="modal-detail-img-counter"
+                  style="position: absolute; bottom: 8px; right: 8px; background: rgba(15, 23, 42, 0.78); color: #fff; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;"
+                >1 / ${activeModalImages.length}</span>
+              `
+              : ''
+          }
+        </div>
+        ${
+          hasMultipleImages
+            ? `<div id="modal-detail-thumbs" style="display: flex; gap: 0.5rem; overflow-x: auto; padding-top: 0.65rem; scrollbar-width: thin;">
+                ${activeModalImages
+                  .map(
+                    (imgUrl, idx) => `
+                  <button
+                    type="button"
+                    onclick="selectDetailImage(${idx})"
+                    class="modal-detail-thumb-btn"
+                    data-idx="${idx}"
+                    style="width: 58px; height: 58px; flex-shrink: 0; border-radius: var(--radius-sm); overflow: hidden; border: 2px solid ${idx === 0 ? 'var(--primary)' : 'var(--border-light)'}; opacity: ${idx === 0 ? '1' : '0.65'}; background: #fff; padding: 0; transition: var(--transition);"
+                  >
+                    <img
+                      src="${imgUrl}"
+                      alt="Miniatura ${idx + 1}"
+                      style="width: 100%; height: 100%; object-fit: cover; display: block;"
+                      onerror="this.src='https://placehold.co/80x80/e2e8f0/475569?text=IMG';"
+                    />
+                  </button>
+                `
+                  )
+                  .join('')}
+              </div>`
+            : ''
+        }
       </div>
       <div>
         <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
@@ -527,6 +603,35 @@ function openProductDetail(id) {
   `;
 
   productModal.classList.add('active');
+}
+
+function selectDetailImage(index) {
+  if (!activeModalImages || activeModalImages.length === 0) return;
+  activeModalImageIndex = (index + activeModalImages.length) % activeModalImages.length;
+
+  const mainImg = document.getElementById('modal-detail-main-img');
+  if (mainImg) {
+    mainImg.src = activeModalImages[activeModalImageIndex];
+  }
+
+  const counterEl = document.getElementById('modal-detail-img-counter');
+  if (counterEl) {
+    counterEl.textContent = `${activeModalImageIndex + 1} / ${activeModalImages.length}`;
+  }
+
+  const thumbsContainer = document.getElementById('modal-detail-thumbs');
+  if (thumbsContainer) {
+    thumbsContainer.querySelectorAll('.modal-detail-thumb-btn').forEach((btn) => {
+      const btnIdx = Number(btn.dataset.idx);
+      const isActive = btnIdx === activeModalImageIndex;
+      btn.style.borderColor = isActive ? 'var(--primary)' : 'var(--border-light)';
+      btn.style.opacity = isActive ? '1' : '0.65';
+    });
+  }
+}
+
+function stepDetailImage(delta) {
+  selectDetailImage(activeModalImageIndex + delta);
 }
 
 function closeProductModal() {

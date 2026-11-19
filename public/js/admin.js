@@ -28,6 +28,7 @@ const adminState = {
   activeEditingClientId: null,
   deleteTarget: null, // { type: 'product'|'client', id: ... }
   galleryTarget: 'product', // 'product' | 'client-logo' | 'client-cover' | 'bulk-row'
+  productImages: [], // Lista de imágenes del producto en creación/edición [{ id, url, previewUrl, file, name }]
   bulk: {
     rows: [],
     pickingRowIndex: null
@@ -304,33 +305,188 @@ async function handleAccountSettingsSubmit(e) {
 function setupImageInputListeners() {
   const fileInput = document.getElementById('prod-image-file');
   const urlInput = document.getElementById('prod-image-url');
-  const preview = document.getElementById('image-preview');
+  const btnAddUrl = document.getElementById('btn-add-image-url');
+  const btnClearImages = document.getElementById('btn-clear-prod-images');
+  const btnFinishGallerySelect = document.getElementById('btn-finish-gallery-select');
 
   fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    let loadedCount = 0;
+    files.forEach((file) => {
       const reader = new FileReader();
       reader.onload = (event) => {
-        preview.src = event.target.result;
-        preview.style.display = 'block';
-        document.getElementById('image-preview-placeholder').style.display = 'none';
+        adminState.productImages.push({
+          id: `file_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          url: '',
+          previewUrl: event.target.result,
+          file,
+          name: file.name
+        });
+        loadedCount++;
+        if (loadedCount === files.length) {
+          renderProductImagesGallery();
+          showToast(
+            files.length > 1
+              ? `${files.length} imágenes agregadas desde tu PC.`
+              : `"${file.name}" agregada al producto.`
+          );
+        }
       };
       reader.readAsDataURL(file);
+    });
+
+    // Limpiar el input para permitir agregar más archivos en otra selección
+    fileInput.value = '';
+  });
+
+  const addUrlsFromInput = () => {
+    const raw = (urlInput.value || '').trim();
+    if (!raw) return;
+
+    const parts = raw
+      .split(/(?:\s*\|\s*|\r?\n|,\s*(?=(?:https?:\/\/|\/|data:image\/)))+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    let added = 0;
+    parts.forEach((u) => {
+      const exists = adminState.productImages.some((item) => item.url === u);
+      if (!exists) {
+        adminState.productImages.push({
+          id: `url_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          url: u,
+          previewUrl: u,
+          file: null,
+          name: u.split('/').pop() || 'Imagen URL'
+        });
+        added++;
+      }
+    });
+
+    urlInput.value = '';
+    renderProductImagesGallery();
+    if (added > 0) {
+      showToast(added > 1 ? `${added} imágenes agregadas por URL.` : 'Imagen agregada a la galería del producto.');
+    }
+  };
+
+  if (btnAddUrl) {
+    btnAddUrl.addEventListener('click', addUrlsFromInput);
+  }
+
+  urlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addUrlsFromInput();
     }
   });
 
-  urlInput.addEventListener('input', (e) => {
-    const val = e.target.value.trim();
-    if (val) {
-      preview.src = val;
-      preview.style.display = 'block';
-      document.getElementById('image-preview-placeholder').style.display = 'none';
-    }
-  });
+  if (btnClearImages) {
+    btnClearImages.addEventListener('click', () => {
+      adminState.productImages = [];
+      urlInput.value = '';
+      renderProductImagesGallery();
+    });
+  }
+
+  if (btnFinishGallerySelect) {
+    btnFinishGallerySelect.addEventListener('click', () => {
+      galleryModal.classList.remove('active');
+    });
+  }
 
   document.getElementById('btn-pick-gallery').addEventListener('click', () => {
     openGalleryModal(true, 'product');
   });
+}
+
+function renderProductImagesGallery() {
+  const galleryEl = document.getElementById('prod-images-gallery');
+  const placeholderEl = document.getElementById('image-preview-placeholder');
+  const countBadgeEl = document.getElementById('prod-images-count-badge');
+  const clearBtnEl = document.getElementById('btn-clear-prod-images');
+  const legacyPreviewEl = document.getElementById('image-preview');
+
+  if (legacyPreviewEl) legacyPreviewEl.style.display = 'none';
+
+  const items = adminState.productImages || [];
+  if (countBadgeEl) {
+    countBadgeEl.textContent = `${items.length} ${items.length === 1 ? 'imagen' : 'imágenes'}`;
+  }
+  if (clearBtnEl) {
+    clearBtnEl.style.display = items.length > 0 ? 'inline-flex' : 'none';
+  }
+
+  if (!galleryEl || !placeholderEl) return;
+
+  if (items.length === 0) {
+    galleryEl.style.display = 'none';
+    galleryEl.innerHTML = '';
+    placeholderEl.style.display = 'flex';
+    return;
+  }
+
+  placeholderEl.style.display = 'none';
+  galleryEl.style.display = 'grid';
+
+  galleryEl.innerHTML = items
+    .map((item, idx) => {
+      const src = item.previewUrl || item.url;
+      const isPrimary = idx === 0;
+      const sourceLabel = item.file ? '💻 PC' : '☁️ URL/Storage';
+      return `
+        <div style="position: relative; border: 2px solid ${isPrimary ? 'var(--primary)' : 'var(--border-light)'}; border-radius: var(--radius-md); overflow: hidden; background: #fff; display: flex; flex-direction: column; box-shadow: var(--shadow-sm);">
+          <div style="aspect-ratio: 1/1; width: 100%; background: #f8fafc; position: relative; overflow: hidden;">
+            <img
+              src="${escapeHtml(src)}"
+              alt="${escapeHtml(item.name || `Imagen ${idx + 1}`)}"
+              style="width: 100%; height: 100%; object-fit: cover; display: block;"
+              onerror="this.src='https://placehold.co/120x120/e2e8f0/475569?text=IMG';"
+            />
+            <span style="position: absolute; top: 4px; left: 4px; background: ${isPrimary ? 'var(--primary)' : 'rgba(15,23,42,0.75)'}; color: #fff; font-size: 0.65rem; font-weight: 700; padding: 2px 6px; border-radius: 999px;">
+              ${isPrimary ? '⭐ Principal' : `#${idx + 1}`}
+            </span>
+            <button
+              type="button"
+              onclick="removeProductImageAt(${idx})"
+              title="Quitar esta imagen"
+              style="position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; background: rgba(239, 68, 68, 0.92); color: #fff; font-size: 0.75rem; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"
+            >
+              ✕
+            </button>
+          </div>
+          <div style="padding: 0.3rem 0.4rem; display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; background: #f8fafc; border-top: 1px solid var(--border-light);">
+            <span style="font-size: 0.65rem; color: var(--text-muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${sourceLabel}
+            </span>
+            ${
+              !isPrimary
+                ? `<button type="button" onclick="setPrimaryProductImage(${idx})" style="font-size: 0.65rem; font-weight: 700; color: var(--primary); background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 4px; padding: 1px 5px;" title="Establecer como foto de portada principal">
+                    ⭐ Portada
+                  </button>`
+                : `<span style="font-size: 0.65rem; font-weight: 700; color: var(--primary);">Portada</span>`
+            }
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function removeProductImageAt(index) {
+  if (index < 0 || index >= adminState.productImages.length) return;
+  adminState.productImages.splice(index, 1);
+  renderProductImagesGallery();
+}
+
+function setPrimaryProductImage(index) {
+  if (index <= 0 || index >= adminState.productImages.length) return;
+  const [chosen] = adminState.productImages.splice(index, 1);
+  adminState.productImages.unshift(chosen);
+  renderProductImagesGallery();
+  showToast('Imagen establecida como portada principal del producto.');
 }
 
 function setupClientModalListeners() {
@@ -735,18 +891,26 @@ function renderAdminTable(products) {
 
     const prodClient = adminState.clients.find(c => c.id === p.cliente_id);
     const prodSymbol = (prodClient && prodClient.moneda_simbolo) || '$';
+    const imagesCount = Array.isArray(p.imagenes) ? p.imagenes.length : (p.imagen_url ? 1 : 0);
 
     return `
       <tr>
         <td style="font-weight: 700; color: var(--text-muted);">#${p.id}</td>
         <td>
-          <img 
-            src="${escapeHtml(p.imagen_url)}" 
-            alt="${escapeHtml(p.nombre)}" 
-            class="table-thumb" 
-            loading="lazy"
-            onerror="this.src='https://placehold.co/100x100/e2e8f0/475569?text=IMG';"
-          />
+          <div style="position: relative; width: 48px; height: 48px;">
+            <img 
+              src="${escapeHtml(p.imagen_url)}" 
+              alt="${escapeHtml(p.nombre)}" 
+              class="table-thumb" 
+              loading="lazy"
+              onerror="this.src='https://placehold.co/100x100/e2e8f0/475569?text=IMG';"
+            />
+            ${
+              imagesCount > 1
+                ? `<span title="${imagesCount} imágenes en este producto" style="position: absolute; bottom: -4px; right: -6px; background: var(--primary); color: #fff; font-size: 0.65rem; font-weight: 800; padding: 1px 5px; border-radius: 999px; border: 1.5px solid #fff; box-shadow: var(--shadow-sm);">+${imagesCount - 1}</span>`
+                : ''
+            }
+          </div>
         </td>
         <td>
           <div style="font-weight: 700; color: var(--text-main);">${escapeHtml(p.nombre)}</div>
@@ -878,6 +1042,10 @@ function openProductForm(mode, product = null) {
     prodClientSelect.value = adminState.activeClientId;
   }
 
+  adminState.productImages = [];
+  const urlInputEl = document.getElementById('prod-image-url');
+  if (urlInputEl) urlInputEl.value = '';
+
   if (mode === 'edit' && product) {
     adminState.activeEditingProductId = product.id;
     const bulkBanner = document.getElementById('prod-modal-bulk-banner');
@@ -894,16 +1062,28 @@ function openProductForm(mode, product = null) {
         : '';
     document.getElementById('prod-stock').value = product.inventario;
     document.getElementById('prod-description').value = product.descripcion;
-    document.getElementById('prod-image-url').value = product.imagen_url;
 
-    if (product.imagen_url) {
-      preview.src = product.imagen_url;
-      preview.style.display = 'block';
-      placeholder.style.display = 'none';
-    } else {
-      preview.style.display = 'none';
-      placeholder.style.display = 'flex';
-    }
+    const existingList =
+      Array.isArray(product.imagenes) && product.imagenes.length > 0
+        ? product.imagenes
+        : product.imagen_url
+          ? [product.imagen_url]
+          : [];
+
+    const isPlaceholder = (u) =>
+      !u || u === '/placeholder.png' || u.includes('placehold.co/400x400/e2e8f0/475569?text=Producto');
+
+    existingList.forEach((imgUrl, idx) => {
+      if (!isPlaceholder(imgUrl)) {
+        adminState.productImages.push({
+          id: `existing_${idx}_${Date.now()}`,
+          url: imgUrl,
+          previewUrl: imgUrl,
+          file: null,
+          name: imgUrl.split('/').pop() || `Imagen ${idx + 1}`
+        });
+      }
+    });
   } else {
     adminState.activeEditingProductId = null;
     const bulkBanner = document.getElementById('prod-modal-bulk-banner');
@@ -912,16 +1092,16 @@ function openProductForm(mode, product = null) {
     document.getElementById('prod-id').value = '';
     const wholesaleEl = document.getElementById('prod-wholesale-price');
     if (wholesaleEl) wholesaleEl.value = '';
-    preview.style.display = 'none';
-    placeholder.style.display = 'flex';
   }
 
+  renderProductImagesGallery();
   productFormModal.classList.add('active');
 }
 
 function closeProductForm() {
   productFormModal.classList.remove('active');
   adminState.activeEditingProductId = null;
+  adminState.productImages = [];
 }
 
 function editProduct(id) {
@@ -934,8 +1114,40 @@ async function handleProductFormSubmit(e) {
   const id = adminState.activeEditingProductId;
   const isEditing = Boolean(id);
 
-  const fileInput = document.getElementById('prod-image-file');
-  const hasFile = fileInput.files && fileInput.files.length > 0;
+  // Si el usuario escribió o pegó una URL en el campo de texto sin pulsar "Agregar URL", incluirla automáticamente
+  const pendingUrlInput = document.getElementById('prod-image-url');
+  const pendingUrlVal = (pendingUrlInput?.value || '').trim();
+  if (pendingUrlVal) {
+    const parts = pendingUrlVal
+      .split(/(?:\s*\|\s*|\r?\n|,\s*(?=(?:https?:\/\/|\/|data:image\/)))+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    parts.forEach((u) => {
+      if (!adminState.productImages.some((item) => item.url === u)) {
+        adminState.productImages.push({
+          id: `url_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          url: u,
+          previewUrl: u,
+          file: null,
+          name: 'URL'
+        });
+      }
+    });
+    pendingUrlInput.value = '';
+  }
+
+  const filesToUpload = [];
+  const orderedImageEntries = [];
+
+  for (const item of adminState.productImages) {
+    if (item.file) {
+      const fileIdx = filesToUpload.length;
+      filesToUpload.push(item.file);
+      orderedImageEntries.push(`__UPLOAD_FILE_${fileIdx}__`);
+    } else if (item.url) {
+      orderedImageEntries.push(item.url);
+    }
+  }
 
   let formData;
   let headers = { 'Authorization': `Bearer ${adminState.token}` };
@@ -946,7 +1158,7 @@ async function handleProductFormSubmit(e) {
       ? parseFloat(rawWholesale)
       : null;
 
-  if (hasFile) {
+  if (filesToUpload.length > 0) {
     formData = new FormData();
     formData.append('cliente_id', document.getElementById('prod-client-id').value);
     formData.append('nombre', document.getElementById('prod-name').value);
@@ -955,7 +1167,10 @@ async function handleProductFormSubmit(e) {
     formData.append('precio_mayor', parsedWholesale !== null ? String(parsedWholesale) : '');
     formData.append('inventario', document.getElementById('prod-stock').value);
     formData.append('descripcion', document.getElementById('prod-description').value);
-    formData.append('imagen', fileInput.files[0]);
+    formData.append('imagenes', JSON.stringify(orderedImageEntries));
+    filesToUpload.forEach((f) => {
+      formData.append('imagenes', f);
+    });
   } else {
     headers['Content-Type'] = 'application/json';
     formData = JSON.stringify({
@@ -966,7 +1181,8 @@ async function handleProductFormSubmit(e) {
       precio_mayor: parsedWholesale,
       inventario: parseInt(document.getElementById('prod-stock').value, 10),
       descripcion: document.getElementById('prod-description').value,
-      imagen_url: document.getElementById('prod-image-url').value
+      imagen_url: orderedImageEntries[0] || '',
+      imagenes: orderedImageEntries
     });
   }
 
@@ -1593,9 +1809,37 @@ function renderStorageExplorer() {
 
   // Renderizar archivos de imagen
   const currentSelectedUrl = getCurrentlySelectedUrlForTarget();
+  const isProductMultiSelect = selectMode && adminState.galleryTarget === 'product';
+  const multiSelectBar = document.getElementById('gallery-multiselect-bar');
+  const multiSelectText = document.getElementById('gallery-multiselect-text');
+  const finishGalleryBtn = document.getElementById('btn-finish-gallery-select');
+
+  if (multiSelectBar) {
+    if (isProductMultiSelect) {
+      multiSelectBar.style.display = 'flex';
+      const count = adminState.productImages.length;
+      if (multiSelectText) {
+        multiSelectText.textContent =
+          count > 0
+            ? `✅ ${count} ${count === 1 ? 'imagen seleccionada' : 'imágenes seleccionadas'} para este producto. Haz clic en más fotos para agregarlas o quitarlas.`
+            : 'Haz clic en una o varias imágenes para agregarlas a este producto.';
+      }
+      if (finishGalleryBtn) {
+        finishGalleryBtn.textContent = `✅ Listo (${count} ${count === 1 ? 'imagen' : 'imágenes'})`;
+      }
+    } else {
+      multiSelectBar.style.display = 'none';
+    }
+  }
 
   visibleFiles.forEach((img) => {
-    const isSelected = currentSelectedUrl && currentSelectedUrl === img.url;
+    const prodImgIdx = isProductMultiSelect
+      ? adminState.productImages.findIndex((item) => item.url === img.url)
+      : -1;
+    const isSelected = isProductMultiSelect
+      ? prodImgIdx !== -1
+      : Boolean(currentSelectedUrl && currentSelectedUrl === img.url);
+
     const card = document.createElement('div');
     card.className = 'storage-file-card';
     if (isSelected) {
@@ -1606,7 +1850,11 @@ function renderStorageExplorer() {
     const thumbWrap = document.createElement('div');
     thumbWrap.style.cssText =
       'aspect-ratio: 1/1; overflow: hidden; border-radius: var(--radius-sm); background: #fff; cursor: pointer; position: relative;';
-    thumbWrap.title = selectMode ? 'Haz clic para elegir esta imagen' : img.filename;
+    thumbWrap.title = selectMode
+      ? isProductMultiSelect
+        ? 'Haz clic para agregar o quitar esta imagen del producto'
+        : 'Haz clic para elegir esta imagen'
+      : img.filename;
 
     const imgEl = document.createElement('img');
     imgEl.src = img.url;
@@ -1617,7 +1865,11 @@ function renderStorageExplorer() {
 
     if (isSelected) {
       const badge = document.createElement('span');
-      badge.textContent = '✓ Seleccionada';
+      badge.textContent = isProductMultiSelect
+        ? prodImgIdx === 0
+          ? '⭐ #1 Principal'
+          : `✓ #${prodImgIdx + 1}`
+        : '✓ Seleccionada';
       badge.style.cssText =
         'position: absolute; top: 6px; right: 6px; background: #16a34a; color: #fff; font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 999px;';
       thumbWrap.appendChild(badge);
@@ -1625,7 +1877,7 @@ function renderStorageExplorer() {
 
     thumbWrap.addEventListener('click', () => {
       if (selectMode) {
-        selectGalleryImage(img.url);
+        selectGalleryImage(img.url, img.filename);
       } else {
         copyToClipboard(img.url);
       }
@@ -1646,11 +1898,21 @@ function renderStorageExplorer() {
 
     const actionBtn = document.createElement('button');
     actionBtn.type = 'button';
-    actionBtn.className = 'btn btn-primary btn-sm';
-    actionBtn.textContent = selectMode ? 'Seleccionar' : 'Copiar URL';
+    actionBtn.className = isProductMultiSelect && isSelected ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm';
+    if (isProductMultiSelect && isSelected) {
+      actionBtn.style.color = '#ef4444';
+      actionBtn.style.borderColor = '#fecaca';
+    }
+    actionBtn.textContent = selectMode
+      ? isProductMultiSelect
+        ? isSelected
+          ? '✕ Quitar'
+          : '➕ Agregar'
+        : 'Seleccionar'
+      : 'Copiar URL';
     actionBtn.addEventListener('click', () => {
       if (selectMode) {
-        selectGalleryImage(img.url);
+        selectGalleryImage(img.url, img.filename);
       } else {
         copyToClipboard(img.url);
       }
@@ -1666,38 +1928,50 @@ function renderStorageExplorer() {
   });
 }
 
-function selectGalleryImage(url) {
+function selectGalleryImage(url, filename = '') {
   if (adminState.galleryTarget === 'client-logo') {
     document.getElementById('client-logo-url').value = url;
     const preview = document.getElementById('client-logo-preview');
     preview.src = url;
     preview.style.display = 'block';
     document.getElementById('client-logo-placeholder').style.display = 'none';
+    galleryModal.classList.remove('active');
+    showToast('Logotipo seleccionado desde Storage.');
   } else if (adminState.galleryTarget === 'client-cover') {
     document.getElementById('client-cover-url').value = url;
     const preview = document.getElementById('client-cover-preview');
     preview.src = url;
     preview.style.display = 'block';
     document.getElementById('client-cover-placeholder').style.display = 'none';
+    galleryModal.classList.remove('active');
+    showToast('Portada seleccionada desde Storage.');
   } else if (adminState.galleryTarget === 'bulk-row') {
     const rowIdx = adminState.bulk.pickingRowIndex;
     if (rowIdx !== null && adminState.bulk.rows[rowIdx]) {
       adminState.bulk.rows[rowIdx].imagen_url = url;
       renderBulkPreviewTable();
     }
+    galleryModal.classList.remove('active');
+    showToast('Imagen seleccionada desde Storage.');
   } else {
-    const urlInput = document.getElementById('prod-image-url');
-    const preview = document.getElementById('image-preview');
-    const placeholder = document.getElementById('image-preview-placeholder');
-
-    urlInput.value = url;
-    preview.src = url;
-    preview.style.display = 'block';
-    placeholder.style.display = 'none';
+    // Selección múltiple para imágenes de un producto
+    const existingIdx = adminState.productImages.findIndex((item) => item.url === url);
+    if (existingIdx !== -1) {
+      adminState.productImages.splice(existingIdx, 1);
+      showToast('Imagen quitada del producto.');
+    } else {
+      adminState.productImages.push({
+        id: `storage_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        url,
+        previewUrl: url,
+        file: null,
+        name: filename || url.split('/').pop() || 'Storage'
+      });
+      showToast(`Imagen agregada (${adminState.productImages.length} en el producto).`);
+    }
+    renderProductImagesGallery();
+    renderStorageExplorer();
   }
-
-  galleryModal.classList.remove('active');
-  showToast('Imagen seleccionada desde Storage.');
 }
 
 // ==========================================================

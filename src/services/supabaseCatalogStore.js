@@ -132,6 +132,55 @@ class SupabaseCatalogStore {
     };
   }
 
+  static normalizeImagesInput(imagenes, imagen_url) {
+    const DEFAULT_PLACEHOLDER = 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
+    const collected = [];
+
+    const pushCandidate = (val) => {
+      if (!val) return;
+      if (Array.isArray(val)) {
+        val.forEach(pushCandidate);
+        return;
+      }
+      const str = String(val).trim();
+      if (!str) return;
+      if (str.startsWith('[') && str.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(str);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(pushCandidate);
+            return;
+          }
+        } catch (_) {}
+      }
+      const parts = str.split(/(?:\s*\|\s*|\r?\n|,\s*(?=(?:https?:\/\/|\/|data:image\/)))+/);
+      for (const part of parts) {
+        const clean = part.trim();
+        if (clean) collected.push(clean);
+      }
+    };
+
+    pushCandidate(imagenes);
+    pushCandidate(imagen_url);
+
+    const unique = [];
+    for (const url of collected) {
+      if (!unique.includes(url)) {
+        unique.push(url);
+      }
+    }
+
+    const isPlaceholder = (u) =>
+      u === '/placeholder.png' || u.includes('placehold.co/400x400/e2e8f0/475569?text=Producto');
+    const realImages = unique.filter((u) => !isPlaceholder(u));
+    const finalImages = realImages.length > 0 ? realImages : unique.length > 0 ? unique : [DEFAULT_PLACEHOLDER];
+
+    return {
+      imagen_url: finalImages[0],
+      imagenes: finalImages
+    };
+  }
+
   static enrichProductRecord(p, metaProducts = {}, clientsMap = new Map()) {
     if (!p) return null;
     const extra = metaProducts[String(p.id)] || {};
@@ -143,6 +192,8 @@ class SupabaseCatalogStore {
         ? Number(Number(rawMayor).toFixed(2))
         : null;
 
+    const normalizedImg = this.normalizeImagesInput(p.imagenes || extra.imagenes, p.imagen_url);
+
     return {
       ...p,
       precio: Number(p.precio) || 0,
@@ -150,7 +201,8 @@ class SupabaseCatalogStore {
       inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 0,
       descripcion: p.descripcion || '',
       categoria: p.categoria || extra.categoria || 'General',
-      imagen_url: p.imagen_url || 'https://placehold.co/400x400/e2e8f0/475569?text=Producto',
+      imagen_url: normalizedImg.imagen_url,
+      imagenes: normalizedImg.imagenes,
       cliente_nombre: p.cliente_nombre || (owner ? owner.nombre : 'Tienda'),
       cliente_slug: p.cliente_slug || (owner ? owner.slug : '')
     };
@@ -681,7 +733,7 @@ class SupabaseCatalogStore {
     return enriched;
   }
 
-  static async createProduct({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {
+  static async createProduct({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes }) {
     if (!cliente_id) {
       throw new Error('Debe seleccionar el cliente o tienda al que pertenece el producto.');
     }
@@ -702,6 +754,8 @@ class SupabaseCatalogStore {
         ? Number(Number(precio_mayor).toFixed(2))
         : null;
 
+    const normalizedImg = this.normalizeImagesInput(imagenes, imagen_url);
+
     const { data: inserted, error } = await supabaseAdmin
       .from('productos')
       .insert([
@@ -711,7 +765,7 @@ class SupabaseCatalogStore {
           descripcion: descripcion ? descripcion.trim() : null,
           precio: Number(Number(precio).toFixed(2)),
           inventario: parsedInv,
-          imagen_url: imagen_url ? imagen_url.trim() : null
+          imagen_url: normalizedImg.imagen_url
         }
       ])
       .select()
@@ -728,7 +782,8 @@ class SupabaseCatalogStore {
     const meta = await this._loadMeta(true);
     meta.products[String(inserted.id)] = {
       categoria: cleanCat,
-      precio_mayor: parsedMayor
+      precio_mayor: parsedMayor,
+      imagenes: normalizedImg.imagenes
     };
     await this._saveMeta(meta);
 
@@ -774,10 +829,7 @@ class SupabaseCatalogStore {
 
       const categoria = raw.categoria && String(raw.categoria).trim() ? String(raw.categoria).trim() : 'General';
       const descripcion = raw.descripcion && String(raw.descripcion).trim() ? String(raw.descripcion).trim() : null;
-      const imagen_url =
-        raw.imagen_url && String(raw.imagen_url).trim()
-          ? String(raw.imagen_url).trim()
-          : 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
+      const normalizedImg = this.normalizeImagesInput(raw.imagenes, raw.imagen_url);
 
       normalizedItems.push({
         cliente_id: parsedClienteId,
@@ -787,7 +839,8 @@ class SupabaseCatalogStore {
         precio_mayor,
         inventario,
         categoria,
-        imagen_url
+        imagen_url: normalizedImg.imagen_url,
+        imagenes: normalizedImg.imagenes
       });
     }
 
@@ -818,7 +871,8 @@ class SupabaseCatalogStore {
       const sourceItem = normalizedItems[idx] || {};
       meta.products[String(row.id)] = {
         categoria: sourceItem.categoria || 'General',
-        precio_mayor: sourceItem.precio_mayor
+        precio_mayor: sourceItem.precio_mayor,
+        imagenes: sourceItem.imagenes || [row.imagen_url]
       };
     });
     await this._saveMeta(meta);
@@ -833,7 +887,7 @@ class SupabaseCatalogStore {
     };
   }
 
-  static async updateProduct(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {
+  static async updateProduct(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes }) {
     const existing = await this.getProductById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
@@ -845,7 +899,11 @@ class SupabaseCatalogStore {
     const nextPrecio = precio !== undefined ? Number(Number(precio).toFixed(2)) : Number(existing.precio);
     const nextInv =
       inventario !== undefined ? Math.max(0, Math.floor(Number(inventario))) : Number(existing.inventario);
-    const nextImg = imagen_url !== undefined ? imagen_url.trim() : existing.imagen_url;
+
+    const normalizedImg =
+      imagenes !== undefined || imagen_url !== undefined
+        ? this.normalizeImagesInput(imagenes, imagen_url)
+        : this.normalizeImagesInput(existing.imagenes, existing.imagen_url);
 
     if (nextPrecio < 0) throw new Error('El precio no puede ser negativo.');
 
@@ -857,7 +915,7 @@ class SupabaseCatalogStore {
         descripcion: nextDesc || null,
         precio: nextPrecio,
         inventario: nextInv,
-        imagen_url: nextImg || null
+        imagen_url: normalizedImg.imagen_url || null
       })
       .eq('id', Number(id));
 
@@ -883,7 +941,8 @@ class SupabaseCatalogStore {
     meta.products[String(id)] = {
       ...prevProdMeta,
       categoria: nextCat,
-      precio_mayor: nextMayor
+      precio_mayor: nextMayor,
+      imagenes: normalizedImg.imagenes
     };
     await this._saveMeta(meta);
 

@@ -73,6 +73,7 @@ db.exec(`
     inventario INTEGER NOT NULL DEFAULT 0 CHECK(inventario >= 0),
     categoria TEXT NOT NULL,
     imagen_url TEXT NOT NULL,
+    imagenes_json TEXT DEFAULT NULL,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
   );
@@ -132,6 +133,13 @@ if (!productCols.some(c => c.name === 'precio_mayor')) {
     db.exec('ALTER TABLE productos ADD COLUMN precio_mayor REAL DEFAULT NULL;');
   } catch (e) {
     console.log('Nota de migración precio_mayor:', e.message);
+  }
+}
+if (!productCols.some(c => c.name === 'imagenes_json')) {
+  try {
+    db.exec('ALTER TABLE productos ADD COLUMN imagenes_json TEXT DEFAULT NULL;');
+  } catch (e) {
+    console.log('Nota de migración imagenes_json:', e.message);
   }
 }
 

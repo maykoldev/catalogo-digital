@@ -3,7 +3,71 @@ const path = require('path');
 const db = require('../db/database');
 const config = require('../config/config');
 
+const DEFAULT_PLACEHOLDER_IMG = 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
+
 class ProductService {
+  /**
+   * Normaliza una lista de imágenes (array, JSON string o URL única) y devuelve { imagen_url, imagenes }
+   */
+  static normalizeImagesInput(imagenes, imagen_url) {
+    const collected = [];
+
+    const pushCandidate = (val) => {
+      if (!val) return;
+      if (Array.isArray(val)) {
+        val.forEach(pushCandidate);
+        return;
+      }
+      const str = String(val).trim();
+      if (!str) return;
+      if (str.startsWith('[') && str.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(str);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(pushCandidate);
+            return;
+          }
+        } catch (_) {}
+      }
+      const parts = str.split(/(?:\s*\|\s*|\r?\n|,\s*(?=(?:https?:\/\/|\/|data:image\/)))+/);
+      for (const part of parts) {
+        const clean = part.trim();
+        if (clean) collected.push(clean);
+      }
+    };
+
+    pushCandidate(imagenes);
+    pushCandidate(imagen_url);
+
+    const unique = [];
+    for (const url of collected) {
+      if (!unique.includes(url)) {
+        unique.push(url);
+      }
+    }
+
+    const isPlaceholder = (u) =>
+      u === '/placeholder.png' || u.includes('placehold.co/400x400/e2e8f0/475569?text=Producto');
+    const realImages = unique.filter((u) => !isPlaceholder(u));
+    const finalImages = realImages.length > 0 ? realImages : unique.length > 0 ? unique : [DEFAULT_PLACEHOLDER_IMG];
+
+    return {
+      imagen_url: finalImages[0],
+      imagenes: finalImages
+    };
+  }
+
+  /**
+   * Formatea una fila de SQLite asegurando el arreglo `imagenes`
+   */
+  static formatRow(row) {
+    if (!row) return null;
+    const { imagen_url, imagenes } = this.normalizeImagesInput(row.imagenes_json, row.imagen_url);
+    const copy = { ...row, imagen_url, imagenes };
+    delete copy.imagenes_json;
+    return copy;
+  }
+
   /**
    * Obtiene productos con soporte para filtrado por cliente/empresa, búsqueda y ordenamiento
    */
@@ -59,7 +123,7 @@ class ProductService {
     query += ` ORDER BY ${safeSort} ${safeOrder}`;
 
     const stmt = db.prepare(query);
-    return stmt.all(...params);
+    return stmt.all(...params).map((r) => this.formatRow(r));
   }
 
   /**
@@ -72,13 +136,13 @@ class ProductService {
       JOIN clientes c ON p.cliente_id = c.id
       WHERE p.id = ?
     `);
-    return stmt.get(Number(id));
+    return this.formatRow(stmt.get(Number(id)));
   }
 
   /**
    * Crea un producto asociado a un cliente específico
    */
-  static create({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {
+  static create({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes }) {
     if (!cliente_id) {
       throw new Error('Debe especificar el cliente o empresa al que pertenece el producto.');
     }
@@ -106,9 +170,11 @@ class ProductService {
         ? Number(Number(precio_mayor).toFixed(2))
         : null;
 
+    const normalizedImg = this.normalizeImagesInput(imagenes, imagen_url);
+
     const stmt = db.prepare(`
-      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -119,7 +185,8 @@ class ProductService {
       parsedMayor,
       Math.floor(Number(inventario)),
       categoria.trim(),
-      (imagen_url || '/placeholder.png').trim()
+      normalizedImg.imagen_url,
+      JSON.stringify(normalizedImg.imagenes)
     );
 
     return this.getById(result.lastInsertRowid);
@@ -144,8 +211,8 @@ class ProductService {
     }
 
     const stmt = db.prepare(`
-      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((items) => {
@@ -165,12 +232,19 @@ class ProductService {
         const inventario = !isNaN(rawInv) && rawInv >= 0 ? Math.floor(rawInv) : 10;
         const categoria = raw.categoria && String(raw.categoria).trim() ? String(raw.categoria).trim() : 'General';
         const descripcion = raw.descripcion ? String(raw.descripcion).trim() : '';
-        const imagen_url =
-          raw.imagen_url && String(raw.imagen_url).trim()
-            ? String(raw.imagen_url).trim()
-            : 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
+        const normalizedImg = this.normalizeImagesInput(raw.imagenes, raw.imagen_url);
 
-        const res = stmt.run(parsedClienteId, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url);
+        const res = stmt.run(
+          parsedClienteId,
+          nombre,
+          descripcion,
+          precio,
+          precio_mayor,
+          inventario,
+          categoria,
+          normalizedImg.imagen_url,
+          JSON.stringify(normalizedImg.imagenes)
+        );
         created.push(this.getById(res.lastInsertRowid));
       }
       return created;
@@ -191,7 +265,7 @@ class ProductService {
   /**
    * Actualiza los datos de un producto
    */
-  static update(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url }) {
+  static update(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes }) {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
@@ -209,18 +283,33 @@ class ProductService {
         : existing.precio_mayor;
     const newInventario = inventario !== undefined ? Math.floor(Number(inventario)) : existing.inventario;
     const newCat = categoria !== undefined ? categoria.trim() : existing.categoria;
-    const newImg = imagen_url !== undefined ? imagen_url.trim() : existing.imagen_url;
+
+    const normalizedImg =
+      imagenes !== undefined || imagen_url !== undefined
+        ? this.normalizeImagesInput(imagenes, imagen_url)
+        : this.normalizeImagesInput(existing.imagenes, existing.imagen_url);
 
     if (newPrecio < 0) throw new Error('El precio no puede ser negativo.');
     if (newInventario < 0) throw new Error('El inventario no puede ser negativo.');
 
     const stmt = db.prepare(`
       UPDATE productos
-      SET cliente_id = ?, nombre = ?, descripcion = ?, precio = ?, precio_mayor = ?, inventario = ?, categoria = ?, imagen_url = ?, updated_at = (datetime('now', 'localtime'))
+      SET cliente_id = ?, nombre = ?, descripcion = ?, precio = ?, precio_mayor = ?, inventario = ?, categoria = ?, imagen_url = ?, imagenes_json = ?, updated_at = (datetime('now', 'localtime'))
       WHERE id = ?
     `);
 
-    stmt.run(newClienteId, newNombre, newDesc, newPrecio, newPrecioMayor, newInventario, newCat, newImg, Number(id));
+    stmt.run(
+      newClienteId,
+      newNombre,
+      newDesc,
+      newPrecio,
+      newPrecioMayor,
+      newInventario,
+      newCat,
+      normalizedImg.imagen_url,
+      JSON.stringify(normalizedImg.imagenes),
+      Number(id)
+    );
     return this.getById(id);
   }
 

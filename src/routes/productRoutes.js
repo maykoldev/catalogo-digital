@@ -21,6 +21,93 @@ const uploadSpreadsheet = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
+// Middleware para soportar subida de una o múltiples imágenes por producto
+const uploadProductImages = upload.fields([
+  { name: 'imagen', maxCount: 20 },
+  { name: 'imagenes', maxCount: 20 }
+]);
+
+/**
+ * Extrae todos los archivos subidos por Multer (ya sea vía req.file o req.files)
+ */
+function extractUploadedFiles(req) {
+  const files = [];
+  if (req.file) {
+    files.push(req.file);
+  }
+  if (req.files) {
+    if (Array.isArray(req.files)) {
+      files.push(...req.files);
+    } else {
+      if (Array.isArray(req.files.imagen)) files.push(...req.files.imagen);
+      if (Array.isArray(req.files.imagenes)) files.push(...req.files.imagenes);
+    }
+  }
+  return files;
+}
+
+/**
+ * Resuelve y sube las imágenes de un producto (combinando URLs de Storage/externas y archivos subidos desde PC)
+ * respetando el orden exacto elegido por el Super-Admin.
+ */
+async function resolveProductImagesFromRequest(req, targetFolder = 'subidas') {
+  const uploadedFiles = extractUploadedFiles(req);
+  const uploadedUrls = [];
+
+  for (const file of uploadedFiles) {
+    const url = await SupabaseCatalogStore.uploadMulterFile(file, targetFolder);
+    if (url) uploadedUrls.push(url);
+  }
+
+  let rawImagenes = req.body.imagenes;
+  if (typeof rawImagenes === 'string') {
+    const trimmed = rawImagenes.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        rawImagenes = JSON.parse(trimmed);
+      } catch (_) {}
+    }
+  }
+
+  const combinedList = [];
+  const usedUploadIndices = new Set();
+
+  const processEntry = (entry) => {
+    if (!entry) return;
+    if (Array.isArray(entry)) {
+      entry.forEach(processEntry);
+      return;
+    }
+    const str = String(entry).trim();
+    if (!str) return;
+    const tokenMatch = /^__UPLOAD_FILE_(\d+)__$/.exec(str);
+    if (tokenMatch) {
+      const idx = parseInt(tokenMatch[1], 10);
+      if (uploadedUrls[idx]) {
+        combinedList.push(uploadedUrls[idx]);
+        usedUploadIndices.add(idx);
+      }
+      return;
+    }
+    combinedList.push(str);
+  };
+
+  processEntry(rawImagenes);
+
+  // Agregar archivos subidos que no hayan sido referenciados mediante marcador de posición
+  uploadedUrls.forEach((url, idx) => {
+    if (!usedUploadIndices.has(idx)) {
+      combinedList.push(url);
+    }
+  });
+
+  if (req.body.imagen_url && typeof req.body.imagen_url === 'string' && req.body.imagen_url.trim()) {
+    processEntry(req.body.imagen_url.trim());
+  }
+
+  return SupabaseCatalogStore.normalizeImagesInput(combinedList, null);
+}
+
 // ==========================================
 // RUTAS DE PRODUCTOS (Consulta)
 // ==========================================
@@ -315,27 +402,24 @@ router.get('/categories', async (req, res) => {
 
 /**
  * POST /api/products
- * Crear producto vinculado a un cliente específico en Supabase
+ * Crear producto vinculado a un cliente específico en Supabase (soporta múltiples imágenes)
  */
-router.post('/products', authMiddleware, upload.single('imagen'), async (req, res) => {
+router.post('/products', authMiddleware, uploadProductImages, async (req, res) => {
   try {
-    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url } = req.body;
+    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria } = req.body;
 
-    let finalImageUrl = imagen_url;
-    if (req.file) {
-      let targetFolder = 'subidas';
-      if (SupabaseCatalogStore.isAvailable && cliente_id) {
-        const clientObj = await SupabaseCatalogStore.getClientById(cliente_id).catch(() => null);
-        if (clientObj && clientObj.slug) {
-          targetFolder = clientObj.slug;
-        }
+    let targetFolder = 'subidas';
+    if (SupabaseCatalogStore.isAvailable && cliente_id) {
+      const clientObj = await SupabaseCatalogStore.getClientById(cliente_id).catch(() => null);
+      if (clientObj && clientObj.slug) {
+        targetFolder = clientObj.slug;
       }
-      finalImageUrl = await SupabaseCatalogStore.uploadMulterFile(req.file, targetFolder);
     }
 
-    if (!finalImageUrl) {
-      finalImageUrl = 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
-    }
+    const { imagen_url: finalImageUrl, imagenes: finalImages } = await resolveProductImagesFromRequest(
+      req,
+      targetFolder
+    );
 
     const newProduct = SupabaseCatalogStore.isAvailable
       ? await SupabaseCatalogStore.createProduct({
@@ -346,7 +430,8 @@ router.post('/products', authMiddleware, upload.single('imagen'), async (req, re
           precio_mayor,
           inventario,
           categoria,
-          imagen_url: finalImageUrl
+          imagen_url: finalImageUrl,
+          imagenes: finalImages
         })
       : ProductService.create({
           cliente_id: cliente_id || 1,
@@ -356,7 +441,8 @@ router.post('/products', authMiddleware, upload.single('imagen'), async (req, re
           precio_mayor,
           inventario,
           categoria,
-          imagen_url: finalImageUrl
+          imagen_url: finalImageUrl,
+          imagenes: finalImages
         });
 
     return res.status(201).json({
@@ -372,22 +458,31 @@ router.post('/products', authMiddleware, upload.single('imagen'), async (req, re
 
 /**
  * PUT /api/products/:id
- * Actualizar datos de un producto
+ * Actualizar datos e imágenes de un producto
  */
-router.put('/products/:id', authMiddleware, upload.single('imagen'), async (req, res) => {
+router.put('/products/:id', authMiddleware, uploadProductImages, async (req, res) => {
   try {
-    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url } = req.body;
+    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria } = req.body;
 
-    let finalImageUrl = imagen_url;
-    if (req.file) {
-      let targetFolder = 'subidas';
-      if (SupabaseCatalogStore.isAvailable && cliente_id) {
-        const clientObj = await SupabaseCatalogStore.getClientById(cliente_id).catch(() => null);
-        if (clientObj && clientObj.slug) {
-          targetFolder = clientObj.slug;
-        }
+    let targetFolder = 'subidas';
+    if (SupabaseCatalogStore.isAvailable && cliente_id) {
+      const clientObj = await SupabaseCatalogStore.getClientById(cliente_id).catch(() => null);
+      if (clientObj && clientObj.slug) {
+        targetFolder = clientObj.slug;
       }
-      finalImageUrl = await SupabaseCatalogStore.uploadMulterFile(req.file, targetFolder);
+    }
+
+    const hasImagePayload =
+      req.body.imagenes !== undefined ||
+      req.body.imagen_url !== undefined ||
+      extractUploadedFiles(req).length > 0;
+
+    let finalImageUrl;
+    let finalImages;
+    if (hasImagePayload) {
+      const resolved = await resolveProductImagesFromRequest(req, targetFolder);
+      finalImageUrl = resolved.imagen_url;
+      finalImages = resolved.imagenes;
     }
 
     const updated = SupabaseCatalogStore.isAvailable
@@ -399,7 +494,8 @@ router.put('/products/:id', authMiddleware, upload.single('imagen'), async (req,
           precio_mayor,
           inventario,
           categoria,
-          imagen_url: finalImageUrl
+          imagen_url: finalImageUrl,
+          imagenes: finalImages
         })
       : ProductService.update(req.params.id, {
           cliente_id,
@@ -409,7 +505,8 @@ router.put('/products/:id', authMiddleware, upload.single('imagen'), async (req,
           precio_mayor,
           inventario,
           categoria,
-          imagen_url: finalImageUrl
+          imagen_url: finalImageUrl,
+          imagenes: finalImages
         });
 
     return res.json({
@@ -541,23 +638,32 @@ router.get('/admin/images', authMiddleware, async (req, res) => {
 
 /**
  * POST /api/admin/upload-image
- * Subida directa de imágenes hacia una carpeta de Supabase Storage (ej: ?folder=Marys)
+ * Subida directa de una o varias imágenes hacia una carpeta de Supabase Storage (ej: ?folder=Marys)
  */
-router.post('/admin/upload-image', authMiddleware, upload.single('imagen'), async (req, res) => {
+router.post('/admin/upload-image', authMiddleware, uploadProductImages, async (req, res) => {
   try {
-    if (!req.file) {
+    const files = extractUploadedFiles(req);
+    if (files.length === 0) {
       return res.status(400).json({ success: false, error: 'No se envió ningún archivo de imagen.' });
     }
 
     const folder = req.body.folder || req.query.folder || 'subidas';
     const bucket = req.body.bucket || req.query.bucket || 'productos';
-    const publicUrl = await SupabaseCatalogStore.uploadMulterFile(req.file, folder, bucket);
+    const urls = [];
+    for (const file of files) {
+      const publicUrl = await SupabaseCatalogStore.uploadMulterFile(file, folder, bucket);
+      if (publicUrl) urls.push(publicUrl);
+    }
 
     return res.json({
       success: true,
-      message: 'Imagen subida correctamente a Storage.',
-      url: publicUrl,
-      filename: req.file.filename,
+      message:
+        urls.length > 1
+          ? `${urls.length} imágenes subidas correctamente a Storage.`
+          : 'Imagen subida correctamente a Storage.',
+      url: urls[0] || '',
+      urls,
+      filename: files[0].filename,
       folder
     });
   } catch (error) {
@@ -576,11 +682,9 @@ router.post('/admin/upload-image', authMiddleware, upload.single('imagen'), asyn
 const handleRegisterSupabaseProducto = async (req, res) => {
   try {
     const { nombre, descripcion, precio, precio_mayor, cliente_id, categoria } = req.body;
-    let imagen_url = req.body.imagen_url || req.body.imagen || null;
-
-    if (req.file) {
-      imagen_url = await SupabaseCatalogStore.uploadMulterFile(req.file, 'subidas');
-    }
+    const resolvedImages = await resolveProductImagesFromRequest(req, 'subidas');
+    const imagen_url = resolvedImages.imagen_url;
+    const imagenes = resolvedImages.imagenes;
 
     if (!nombre || typeof nombre !== 'string' || !nombre.trim()) {
       return res.status(400).json({
@@ -665,7 +769,7 @@ const handleRegisterSupabaseProducto = async (req, res) => {
     }
 
     const created = data && data[0] ? data[0] : recordToInsert;
-    if ((categoria || precio_mayor !== undefined) && created && created.id) {
+    if (created && created.id) {
       const meta = await SupabaseCatalogStore._loadMeta(true);
       const parsedMayor =
         precio_mayor !== undefined && precio_mayor !== null && precio_mayor !== '' && !isNaN(Number(precio_mayor)) && Number(precio_mayor) > 0
@@ -673,9 +777,11 @@ const handleRegisterSupabaseProducto = async (req, res) => {
           : null;
       meta.products[String(created.id)] = {
         categoria: categoria ? String(categoria).trim() : 'General',
-        precio_mayor: parsedMayor
+        precio_mayor: parsedMayor,
+        imagenes
       };
       await SupabaseCatalogStore._saveMeta(meta);
+      created.imagenes = imagenes;
     }
 
     return res.status(201).json({
@@ -692,9 +798,9 @@ const handleRegisterSupabaseProducto = async (req, res) => {
   }
 };
 
-router.post('/productos', authMiddleware, upload.single('imagen'), handleRegisterSupabaseProducto);
-router.post('/supabase/productos', authMiddleware, upload.single('imagen'), handleRegisterSupabaseProducto);
-router.post('/supabase/products', authMiddleware, upload.single('imagen'), handleRegisterSupabaseProducto);
+router.post('/productos', authMiddleware, uploadProductImages, handleRegisterSupabaseProducto);
+router.post('/supabase/productos', authMiddleware, uploadProductImages, handleRegisterSupabaseProducto);
+router.post('/supabase/products', authMiddleware, uploadProductImages, handleRegisterSupabaseProducto);
 
 /**
  * GET /api/productos/:cliente_id

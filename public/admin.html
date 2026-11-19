@@ -585,14 +585,22 @@
             <textarea id="prod-description" class="form-control" rows="3" placeholder="Detalles de fabricación, uso y características..."></textarea>
           </div>
 
-          <!-- Opciones de Imagen -->
+          <!-- Opciones de Imágenes (Soporte Multi-Imagen por Producto) -->
           <div class="form-group">
-            <label class="form-label">Imagen del Producto</label>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.375rem; flex-wrap: wrap;">
+              <label class="form-label" style="margin-bottom: 0;">Imágenes del Producto (Puedes agregar varias)</label>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span id="prod-images-count-badge" class="badge badge-category" style="font-size: 0.72rem;">0 imágenes</span>
+                <button type="button" id="btn-clear-prod-images" class="btn btn-outline btn-sm" style="display: none; padding: 0.15rem 0.5rem; font-size: 0.72rem; color: #ef4444; border-color: #fecaca;">
+                  Limpiar todas
+                </button>
+              </div>
+            </div>
             
             <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
-              <input type="file" id="prod-image-file" accept="image/jpeg,image/png,image/webp" style="display: none;" />
+              <input type="file" id="prod-image-file" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="display: none;" />
               <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('prod-image-file').click()">
-                📤 Subir desde PC
+                📤 Subir desde PC (1 o varias)
               </button>
 
               <button type="button" id="btn-pick-gallery" class="btn btn-primary btn-sm" style="background: #4338ca;">
@@ -600,18 +608,26 @@
               </button>
             </div>
 
-            <input 
-              type="text" 
-              id="prod-image-url" 
-              class="form-control" 
-              placeholder="URL de la imagen seleccionada en Storage..." 
-            />
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+              <input 
+                type="text" 
+                id="prod-image-url" 
+                class="form-control" 
+                placeholder="Pega una URL de imagen y pulsa Agregar (o elige desde PC / Storage)..." 
+              />
+              <button type="button" id="btn-add-image-url" class="btn btn-secondary btn-sm" style="white-space: nowrap;">
+                ➕ Agregar URL
+              </button>
+            </div>
 
-            <!-- Caja de Previsualización -->
-            <div class="image-preview-box">
-              <span id="image-preview-placeholder" style="color: var(--text-muted); font-size: 0.8125rem;">
-                Sin imagen seleccionada para previsualizar
-              </span>
+            <!-- Galería de Previsualización Multi-Imagen -->
+            <div class="image-preview-box" id="prod-images-preview-box" style="height: auto; min-height: 150px; padding: 0.75rem; align-items: stretch; justify-content: flex-start;">
+              <div id="image-preview-placeholder" style="width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.8125rem; text-align: center; padding: 1.5rem 0.5rem; gap: 0.35rem;">
+                <span style="font-size: 1.6rem;">🖼️</span>
+                <span>Sin imágenes seleccionadas aún</span>
+                <span style="font-size: 0.75rem; color: var(--text-subtle);">Puedes subir varios archivos desde tu PC o marcar varias fotos en el Explorador de Storage. La primera imagen será la portada principal.</span>
+              </div>
+              <div id="prod-images-gallery" style="display: none; width: 100%; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 0.65rem;"></div>
               <img id="image-preview" src="" alt="Vista previa" style="display: none;" />
             </div>
           </div>
@@ -788,6 +804,16 @@
 
         <!-- Estado informativo de carpeta actual -->
         <div id="storage-status-bar" style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;"></div>
+
+        <!-- Barra de selección múltiple cuando se eligen imágenes para un producto -->
+        <div id="gallery-multiselect-bar" style="display: none; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: var(--radius-md); padding: 0.6rem 0.875rem; margin-bottom: 0.75rem;">
+          <div style="font-size: 0.8125rem; color: #1e1b4b; font-weight: 600;" id="gallery-multiselect-text">
+            Haz clic en una o varias imágenes para agregarlas o quitarlas del producto.
+          </div>
+          <button type="button" id="btn-finish-gallery-select" class="btn btn-primary btn-sm">
+            ✅ Listo (Usar seleccionadas)
+          </button>
+        </div>
 
         <!-- Cuadrícula de Carpetas e Imágenes -->
         <div id="gallery-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 1rem; max-height: 460px; overflow-y: auto; padding: 0.25rem;"></div>

@@ -469,17 +469,29 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
     const parsedStock = parseNumericField(rawStock, 10);
     const inventario = parsedStock !== null && parsedStock >= 0 ? Math.floor(parsedStock) : 10;
 
-    // Resolver URL de imagen (si puso URL completa o solo el nombre del archivo en Storage)
-    let imagen_url = rawImg;
-    if (imagen_url && !/^https?:\/\//i.test(imagen_url) && !imagen_url.startsWith('/')) {
-      const cleanFileKey = path.basename(imagen_url).toLowerCase().trim();
-      const cleanNoExt = path.basename(cleanFileKey, path.extname(cleanFileKey)).toLowerCase().trim();
-      if (storageLookup.has(cleanFileKey)) {
-        imagen_url = storageLookup.get(cleanFileKey);
-      } else if (storageLookup.has(cleanNoExt)) {
-        imagen_url = storageLookup.get(cleanNoExt);
+    // Resolver una o varias URLs/nombres de archivo de imagen (separadas por |, salto de línea o coma)
+    const rawParts = rawImg
+      ? rawImg
+          .split(/(?:\s*\|\s*|\r?\n|;\s*|,\s*)+/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
+    const resolvedImages = rawParts.map((part) => {
+      if (!/^https?:\/\//i.test(part) && !part.startsWith('/')) {
+        const cleanFileKey = path.basename(part).toLowerCase().trim();
+        const cleanNoExt = path.basename(cleanFileKey, path.extname(cleanFileKey)).toLowerCase().trim();
+        if (storageLookup.has(cleanFileKey)) {
+          return storageLookup.get(cleanFileKey);
+        }
+        if (storageLookup.has(cleanNoExt)) {
+          return storageLookup.get(cleanNoExt);
+        }
       }
-    }
+      return part;
+    });
+
+    const uniqueImages = Array.from(new Set(resolvedImages));
 
     parsedProducts.push({
       rowNumber: r + 1,
@@ -489,7 +501,8 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
       precio_mayor,
       inventario,
       descripcion: rawDesc,
-      imagen_url: imagen_url || ''
+      imagen_url: uniqueImages[0] || '',
+      imagenes: uniqueImages
     });
   }
 
