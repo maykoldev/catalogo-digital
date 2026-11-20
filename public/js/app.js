@@ -419,9 +419,9 @@ function renderProducts(products) {
           </div>
           ${
             p.imagenes && p.imagenes.length > 1
-              ? `<div style="position: absolute; top: 0.75rem; right: 0.75rem; z-index: 2;">
-                  <span class="badge" style="background: rgba(15, 23, 42, 0.78); color: #fff; font-size: 0.7rem; backdrop-filter: blur(4px);">
-                    📷 ${p.imagenes.length} fotos
+              ? `<div class="product-photos-overlay">
+                  <span class="badge product-photos-badge">
+                    📷 ${p.imagenes.length}
                   </span>
                 </div>`
               : ''
