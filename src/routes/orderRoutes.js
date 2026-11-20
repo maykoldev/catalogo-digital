@@ -153,7 +153,10 @@ const handleProcessOrder = async (req, res) => {
         });
       }
 
-      const subtotal = parseFloat((cantidad * precioUnitario).toFixed(2));
+      const subtotal =
+        item.subtotal !== undefined && !isNaN(Number(item.subtotal)) && Number(item.subtotal) >= 0
+          ? parseFloat(Number(item.subtotal).toFixed(2))
+          : parseFloat((cantidad * precioUnitario).toFixed(2));
       total += subtotal;
 
       processedItems.push({
@@ -161,7 +164,8 @@ const handleProcessOrder = async (req, res) => {
         nombre: String(nombre).trim(),
         cantidad,
         precio_unitario: precioUnitario,
-        subtotal
+        subtotal,
+        modalidad: item.modalidad ? String(item.modalidad).trim() : ''
       });
     }
 
@@ -183,8 +187,9 @@ const handleProcessOrder = async (req, res) => {
     message += `\n📦 *DETALLE DE PRODUCTOS:*\n`;
 
     processedItems.forEach((it, index) => {
+      const modeTag = it.modalidad ? ` _(${it.modalidad})_` : '';
       message += `${index + 1}. *${it.nombre}*\n`;
-      message += `   - Cantidad: ${it.cantidad} unid.\n`;
+      message += `   - Cantidad: ${it.cantidad} unid.${modeTag}\n`;
       message += `   - Precio unit.: ${currencySymbol}${it.precio_unitario.toFixed(2)}\n`;
       message += `   - Subtotal: ${currencySymbol}${it.subtotal.toFixed(2)}\n`;
     });

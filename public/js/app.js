@@ -455,7 +455,7 @@ function renderProducts(products) {
               </div>
               ${
                 p.precio_mayor && Number(p.precio_mayor) > 0
-                  ? `<div style="font-size: 0.75rem; font-weight: 700; color: #047857; margin-top: 2px;">Al mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)}</div>`
+                  ? `<div style="font-size: 0.75rem; font-weight: 700; color: #047857; margin-top: 2px;">Al mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} (docena)</div>`
                   : ''
               }
             </div>
@@ -587,7 +587,7 @@ function openProductDetail(id) {
           ${
             product.precio_mayor && Number(product.precio_mayor) > 0
               ? `<div style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; padding: 0.3rem 0.75rem; border-radius: var(--radius-md); font-size: 0.95rem; font-weight: 800;">
-                  🏷️ Al Mayor: ${state.currencySymbol}${Number(product.precio_mayor).toFixed(2)}
+                  🏷️ Al Mayor: ${state.currencySymbol}${Number(product.precio_mayor).toFixed(2)} (docena)
                 </div>`
               : ''
           }
@@ -665,7 +665,7 @@ function consultProductWhatsApp(id) {
 
   const wholesaleLine =
     p.precio_mayor && Number(p.precio_mayor) > 0
-      ? `\n🏷️ Precio al Mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${state.currencyCode}`
+      ? `\n🏷️ Precio al Mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${state.currencyCode} (docena)`
       : '';
 
   const text = `¡Hola *${state.clientInfo.nombre}*! Me interesa este producto de su catálogo:
@@ -738,6 +738,7 @@ function addToCart(productId) {
       id: product.id,
       nombre: product.nombre,
       precio: product.precio,
+      precio_mayor: product.precio_mayor,
       imagen_url: product.imagen_url,
       categoria: product.categoria,
       maxStock: product.inventario,
@@ -748,6 +749,185 @@ function addToCart(productId) {
   saveCart();
   updateCartUI();
   showToast(`"${product.nombre}" agregado al pedido.`);
+}
+
+/**
+ * Extrae el tipo de artículo base (ej. perforador, tijera, pistola) y su medida/tamaño (ej. 1_pulg, 2_pulg, 20_w)
+ * para agrupar variantes de la misma línea y medida sin mezclar tamaños distintos ni artículos diferentes.
+ */
+function extractProductTypeAndSize(nombre, categoria) {
+  const clean = String(nombre || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  const withNumbers = clean
+    .replace(/\bmedia\s+(pulgadas?|pulg\b)/g, '0.5 $1')
+    .replace(/\b(?:una|un)\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '1 $1')
+    .replace(/\bdos\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '2 $1')
+    .replace(/\btres\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '3 $1')
+    .replace(/\bcuatro\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '4 $1')
+    .replace(/\bcinco\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '5 $1');
+
+  const stopWords = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'en', 'con', 'para', 'por', 'set', 'kit', 'pack']);
+  const words = withNumbers.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+  let baseType = words.find(w => !stopWords.has(w) && !/^\d+$/.test(w)) || 'item';
+
+  if (baseType.endsWith('es') && baseType.length > 4) {
+    baseType = baseType.slice(0, -2);
+  } else if (baseType.endsWith('s') && baseType.length > 3) {
+    baseType = baseType.slice(0, -1);
+  }
+  if (baseType === 'perforadora') baseType = 'perforador';
+
+  let sizeToken = 'std';
+  const inchMatch = withNumbers.match(/(\d+(?:[.,\/]\d+)?)\s*(?:pulgadas?|pulg\.?|in\b|"|'')/);
+  if (inchMatch) {
+    sizeToken = `${inchMatch[1].replace(',', '.')}_pulg`;
+  } else {
+    const unitMatch = withNumbers.match(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m|w|g|ml|oz|l)\b/);
+    if (unitMatch) {
+      sizeToken = `${unitMatch[1].replace(',', '.')}_${unitMatch[2]}`;
+    }
+  }
+
+  const catClean = String(categoria || 'general')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  return {
+    baseType,
+    sizeToken,
+    catClean
+  };
+}
+
+/**
+ * Calcula los precios de todos los ítems del carrito agrupando variantes del mismo tipo, medida y precio
+ * para que a partir de 6 unidades (media docena) de ese mismo grupo aplique el precio al por mayor (docena).
+ */
+function computeCartPricingMap() {
+  const groupTotals = new Map();
+  const itemMeta = new Map();
+
+  state.cart.forEach(item => {
+    const liveProd = state.allProducts.find(p => p.id === item.id);
+    const nombre = liveProd ? liveProd.nombre : item.nombre;
+    const categoria = liveProd ? liveProd.categoria : item.categoria;
+    const basePrice = liveProd ? Number(liveProd.precio) : Number(item.precio) || 0;
+    const rawWholesale =
+      liveProd && liveProd.precio_mayor !== undefined
+        ? liveProd.precio_mayor
+        : item.precio_mayor;
+    const dozenPrice = rawWholesale && Number(rawWholesale) > 0 ? Number(rawWholesale) : null;
+    const qty = Number(item.qty) || 1;
+
+    if (!dozenPrice) {
+      itemMeta.set(item.id, {
+        basePrice,
+        dozenPrice: null,
+        groupKey: null,
+        qty
+      });
+      return;
+    }
+
+    const { baseType, sizeToken, catClean } = extractProductTypeAndSize(nombre, categoria);
+    const groupKey = `${catClean}::${baseType}::${sizeToken}::${basePrice.toFixed(2)}::${dozenPrice.toFixed(2)}`;
+
+    const curr = groupTotals.get(groupKey) || { totalQty: 0, itemCount: 0, baseType, sizeToken };
+    curr.totalQty += qty;
+    curr.itemCount += 1;
+    groupTotals.set(groupKey, curr);
+
+    itemMeta.set(item.id, {
+      basePrice,
+      dozenPrice,
+      groupKey,
+      qty
+    });
+  });
+
+  const pricingMap = new Map();
+
+  state.cart.forEach(item => {
+    const meta = itemMeta.get(item.id);
+    if (!meta || !meta.dozenPrice || !meta.groupKey) {
+      const basePrice = meta ? meta.basePrice : Number(item.precio) || 0;
+      const qty = Number(item.qty) || 1;
+      pricingMap.set(item.id, {
+        isWholesale: false,
+        basePrice,
+        unitPrice: basePrice,
+        dozenPrice: null,
+        groupQty: qty,
+        isAssortedGroup: false,
+        tierLabel: '',
+        hintText: '',
+        subtotal: Number((basePrice * qty).toFixed(2))
+      });
+      return;
+    }
+
+    const groupInfo = groupTotals.get(meta.groupKey);
+    const groupQty = groupInfo ? groupInfo.totalQty : meta.qty;
+    const isAssortedGroup = groupInfo ? groupInfo.itemCount > 1 : false;
+
+    // Si precio_mayor representa el valor de la docena (mayor al precio unitario), el unitario al mayor es precio_mayor / 12
+    const unitWholesale =
+      meta.dozenPrice > meta.basePrice
+        ? meta.dozenPrice / 12
+        : meta.dozenPrice;
+
+    if (groupQty >= 6) {
+      const subtotal = Number((unitWholesale * meta.qty).toFixed(2));
+      const unitPrice = Number(unitWholesale.toFixed(2));
+      const assortedTag = isAssortedGroup ? ' surtida' : '';
+      let tierLabel = `Al mayor (${groupQty} unid.)`;
+
+      if (groupQty === 6) {
+        tierLabel = `½ docena${assortedTag} (Al mayor)`;
+      } else if (groupQty === 12) {
+        tierLabel = `1 docena${assortedTag} (Al mayor)`;
+      } else if (groupQty % 12 === 0) {
+        tierLabel = `${groupQty / 12} docenas${assortedTag} (Al mayor)`;
+      } else if (groupQty % 6 === 0) {
+        tierLabel = `${Math.floor(groupQty / 12)} ½ docenas${assortedTag} (Al mayor)`;
+      } else {
+        tierLabel = `Al mayor (${groupQty} unid. mismo tipo)`;
+      }
+
+      pricingMap.set(item.id, {
+        isWholesale: true,
+        basePrice: meta.basePrice,
+        unitPrice,
+        dozenPrice: meta.dozenPrice,
+        groupQty,
+        isAssortedGroup,
+        tierLabel,
+        hintText: '',
+        subtotal
+      });
+    } else {
+      const missingForHalfDozen = 6 - groupQty;
+      pricingMap.set(item.id, {
+        isWholesale: false,
+        basePrice: meta.basePrice,
+        unitPrice: meta.basePrice,
+        dozenPrice: meta.dozenPrice,
+        groupQty,
+        isAssortedGroup,
+        tierLabel: '',
+        hintText: `Faltan ${missingForHalfDozen} unid. de este mismo tipo/medida para ½ docena al mayor`,
+        subtotal: Number((meta.basePrice * meta.qty).toFixed(2))
+      });
+    }
+  });
+
+  return pricingMap;
 }
 
 function updateQty(id, delta) {
@@ -793,17 +973,41 @@ function updateCartUI() {
 
   if (buyerFormContainer) buyerFormContainer.style.display = 'block';
 
+  const pricingMap = computeCartPricingMap();
   let total = 0;
+
   cartItemsContainer.innerHTML = state.cart.map(item => {
-    const itemSubtotal = item.precio * item.qty;
-    total += itemSubtotal;
+    const pricing = pricingMap.get(item.id) || {
+      isWholesale: false,
+      basePrice: Number(item.precio) || 0,
+      unitPrice: Number(item.precio) || 0,
+      subtotal: (Number(item.precio) || 0) * item.qty,
+      tierLabel: '',
+      hintText: ''
+    };
+    total += pricing.subtotal;
+
     return `
       <div class="drawer-item">
         <img src="${item.imagen_url}" alt="${item.nombre}" class="drawer-item-img" />
         <div class="drawer-item-info">
           <div class="drawer-item-title">${item.nombre}</div>
-          <div class="drawer-item-price">${state.currencySymbol}${Number(item.precio).toFixed(2)} c/u</div>
-          <div style="font-size: 0.75rem; color: var(--text-subtle); margin-top: 2px;">Subtotal: ${state.currencySymbol}${itemSubtotal.toFixed(2)}</div>
+          <div class="drawer-item-price">
+            ${state.currencySymbol}${pricing.unitPrice.toFixed(2)} c/u
+            ${
+              pricing.isWholesale && pricing.unitPrice < pricing.basePrice
+                ? `<span style="text-decoration: line-through; color: var(--text-subtle); font-weight: 500; font-size: 0.72rem; margin-left: 4px;">${state.currencySymbol}${pricing.basePrice.toFixed(2)}</span>`
+                : ''
+            }
+          </div>
+          ${
+            pricing.isWholesale && pricing.tierLabel
+              ? `<div style="display: inline-block; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; font-size: 0.68rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; margin-top: 2px;">🏷️ ${pricing.tierLabel}</div>`
+              : pricing.hintText
+                ? `<div style="font-size: 0.68rem; color: #047857; margin-top: 2px;">💡 ${pricing.hintText}</div>`
+                : ''
+          }
+          <div style="font-size: 0.75rem; color: var(--text-subtle); margin-top: 2px;">Subtotal: <strong style="color: var(--text-main);">${state.currencySymbol}${pricing.subtotal.toFixed(2)}</strong></div>
         </div>
         <div class="drawer-item-qty">
           <button class="qty-btn" onclick="updateQty(${item.id}, -1)">-</button>
@@ -854,6 +1058,7 @@ async function checkoutWhatsApp() {
   if (btnCheckoutLabel) btnCheckoutLabel.textContent = 'Generando enlace de pedido...';
 
   try {
+    const pricingMap = computeCartPricingMap();
     const payload = {
       cliente_id: state.clientInfo.id,
       cliente_slug: state.clientSlug,
@@ -863,12 +1068,17 @@ async function checkoutWhatsApp() {
         telefono: buyerPhone,
         direccion: buyerAddress
       },
-      items: state.cart.map(item => ({
-        producto_id: item.id,
-        nombre: item.nombre,
-        cantidad: item.qty,
-        precio_unitario: Number(item.precio)
-      }))
+      items: state.cart.map(item => {
+        const pricing = pricingMap.get(item.id);
+        return {
+          producto_id: item.id,
+          nombre: item.nombre,
+          cantidad: item.qty,
+          precio_unitario: pricing ? pricing.unitPrice : Number(item.precio),
+          subtotal: pricing ? pricing.subtotal : Number((Number(item.precio) * item.qty).toFixed(2)),
+          modalidad: pricing && pricing.isWholesale ? pricing.tierLabel : ''
+        };
+      })
     };
 
     const res = await fetch(apiUrl('/api/pedidos'), {
