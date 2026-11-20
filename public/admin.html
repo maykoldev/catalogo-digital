@@ -481,8 +481,13 @@
               </div>
 
               <div class="form-group" style="margin-bottom: 0.5rem;">
-                <label for="client-fee-amount" class="form-label" style="font-size: 0.8rem;">Monto de la Cuota</label>
-                <input type="number" id="client-fee-amount" class="form-control" step="0.01" min="0" placeholder="Ej: 15.00" />
+                <label for="client-fee-amount" class="form-label" style="font-size: 0.8rem;">Monto de la Cuota (USD $)</label>
+                <div style="display: flex; align-items: stretch;">
+                  <span style="display: inline-flex; align-items: center; padding: 0 0.65rem; background: #e0e7ff; color: #3730a3; font-weight: 800; font-size: 0.8rem; border: 1px solid var(--border-light); border-right: none; border-radius: var(--radius-md) 0 0 var(--radius-md); white-space: nowrap;">
+                    $ USD
+                  </span>
+                  <input type="number" id="client-fee-amount" class="form-control" step="0.01" min="0" placeholder="Ej: 15.00" style="border-radius: 0 var(--radius-md) var(--radius-md) 0;" />
+                </div>
               </div>
             </div>
 

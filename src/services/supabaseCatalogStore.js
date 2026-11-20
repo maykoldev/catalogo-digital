@@ -138,6 +138,10 @@ class SupabaseCatalogStore {
       moneda_codigo: c.moneda_codigo || extra.moneda_codigo || 'USD',
       cuota_frecuencia: c.cuota_frecuencia || extra.cuota_frecuencia || 'mensual',
       cuota_monto: parsedMonto,
+      cuota_moneda_simbolo:
+        c.cuota_moneda_simbolo || extra.cuota_moneda_simbolo || c.moneda_simbolo || extra.moneda_simbolo || '$',
+      cuota_moneda_codigo:
+        c.cuota_moneda_codigo || extra.cuota_moneda_codigo || c.moneda_codigo || extra.moneda_codigo || 'USD',
       cuota_vencimiento: c.cuota_vencimiento || extra.cuota_vencimiento || '',
       activo: c.activo !== undefined ? c.activo : extra.activo !== undefined ? extra.activo : 1,
       enlace_publico: `/c/${c.slug}`
@@ -500,6 +504,8 @@ class SupabaseCatalogStore {
     moneda_codigo,
     cuota_frecuencia,
     cuota_monto,
+    cuota_moneda_simbolo,
+    cuota_moneda_codigo,
     cuota_vencimiento
   }) {
     if (!nombre || !nombre.trim()) {
@@ -541,16 +547,20 @@ class SupabaseCatalogStore {
         ? Math.max(0, Number(cuota_monto))
         : 0;
 
+    const cleanSimbolo = (moneda_simbolo || '$').trim();
+    const cleanCodigo = (moneda_codigo || 'USD').trim().toUpperCase();
     const meta = await this._loadMeta(true);
     meta.clients[String(inserted.id)] = {
       descripcion: (descripcion || '').trim(),
       email: (email || '').trim(),
       portada_url: (portada_url || '').trim(),
       color_primario: color_primario || '#4f46e5',
-      moneda_simbolo: (moneda_simbolo || '$').trim(),
-      moneda_codigo: (moneda_codigo || 'USD').trim().toUpperCase(),
+      moneda_simbolo: cleanSimbolo,
+      moneda_codigo: cleanCodigo,
       cuota_frecuencia: (cuota_frecuencia || 'mensual').trim(),
       cuota_monto: parsedMonto,
+      cuota_moneda_simbolo: (cuota_moneda_simbolo || cleanSimbolo).trim(),
+      cuota_moneda_codigo: (cuota_moneda_codigo || cleanCodigo).trim().toUpperCase(),
       cuota_vencimiento: (cuota_vencimiento || '').trim(),
       activo: 1
     };
@@ -574,6 +584,8 @@ class SupabaseCatalogStore {
       moneda_codigo,
       cuota_frecuencia,
       cuota_monto,
+      cuota_moneda_simbolo,
+      cuota_moneda_codigo,
       cuota_vencimiento,
       activo
     }
@@ -641,6 +653,14 @@ class SupabaseCatalogStore {
       cuota_frecuencia:
         cuota_frecuencia !== undefined ? cuota_frecuencia.trim() : prevExtra.cuota_frecuencia || 'mensual',
       cuota_monto: nextMonto,
+      cuota_moneda_simbolo:
+        cuota_moneda_simbolo !== undefined
+          ? cuota_moneda_simbolo.trim()
+          : prevExtra.cuota_moneda_simbolo || (moneda_simbolo !== undefined ? moneda_simbolo.trim() : prevExtra.moneda_simbolo || '$'),
+      cuota_moneda_codigo:
+        cuota_moneda_codigo !== undefined
+          ? cuota_moneda_codigo.trim().toUpperCase()
+          : prevExtra.cuota_moneda_codigo || (moneda_codigo !== undefined ? moneda_codigo.trim().toUpperCase() : prevExtra.moneda_codigo || 'USD'),
       cuota_vencimiento:
         cuota_vencimiento !== undefined ? cuota_vencimiento.trim() : prevExtra.cuota_vencimiento || '',
       activo: activo !== undefined ? (activo ? 1 : 0) : prevExtra.activo !== undefined ? prevExtra.activo : 1

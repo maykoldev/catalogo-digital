@@ -16,6 +16,8 @@ function sanitizePublicClient(c) {
   const copy = { ...c };
   delete copy.cuota_frecuencia;
   delete copy.cuota_monto;
+  delete copy.cuota_moneda_simbolo;
+  delete copy.cuota_moneda_codigo;
   delete copy.cuota_vencimiento;
   return copy;
 }
@@ -157,6 +159,8 @@ router.post('/admin/clientes', authMiddleware, clientUploadFields, async (req, r
       moneda_codigo,
       cuota_frecuencia,
       cuota_monto,
+      cuota_moneda_simbolo,
+      cuota_moneda_codigo,
       cuota_vencimiento
     } = req.body;
     let { logo_url, portada_url } = req.body;
@@ -186,6 +190,8 @@ router.post('/admin/clientes', authMiddleware, clientUploadFields, async (req, r
           moneda_codigo,
           cuota_frecuencia,
           cuota_monto,
+          cuota_moneda_simbolo,
+          cuota_moneda_codigo,
           cuota_vencimiento
         })
       : ClienteService.create({
@@ -201,6 +207,8 @@ router.post('/admin/clientes', authMiddleware, clientUploadFields, async (req, r
           moneda_codigo,
           cuota_frecuencia,
           cuota_monto,
+          cuota_moneda_simbolo,
+          cuota_moneda_codigo,
           cuota_vencimiento
         });
 
@@ -231,6 +239,8 @@ router.put('/admin/clientes/:id', authMiddleware, clientUploadFields, async (req
       moneda_codigo,
       cuota_frecuencia,
       cuota_monto,
+      cuota_moneda_simbolo,
+      cuota_moneda_codigo,
       cuota_vencimiento,
       activo
     } = req.body;
@@ -261,6 +271,8 @@ router.put('/admin/clientes/:id', authMiddleware, clientUploadFields, async (req
           moneda_codigo,
           cuota_frecuencia,
           cuota_monto,
+          cuota_moneda_simbolo,
+          cuota_moneda_codigo,
           cuota_vencimiento,
           activo
         })
@@ -277,6 +289,8 @@ router.put('/admin/clientes/:id', authMiddleware, clientUploadFields, async (req
           moneda_codigo,
           cuota_frecuencia,
           cuota_monto,
+          cuota_moneda_simbolo,
+          cuota_moneda_codigo,
           cuota_vencimiento,
           activo
         });

@@ -674,8 +674,8 @@ function getClientMaintenanceStatus(client) {
   };
   const periodLabel = periodMap[freq] || 'Mensual';
   const amount = Number(client.cuota_monto) || 0;
-  const symbol = client.moneda_simbolo || '$';
-  const code = client.moneda_codigo || 'USD';
+  const symbol = '$';
+  const code = 'USD';
   const dueStr = (client.cuota_vencimiento || '').trim();
 
   if (freq === 'ninguna') {
@@ -867,7 +867,7 @@ function renderClientsGrid() {
               .map(({ client, mStatus }) => {
                 const feeText =
                   mStatus.amount > 0
-                    ? `${escapeHtml(client.moneda_simbolo || '$')}${mStatus.amount.toFixed(2)} (${mStatus.periodLabel})`
+                    ? `$${mStatus.amount.toFixed(2)} USD (${mStatus.periodLabel})`
                     : mStatus.periodLabel;
                 return `
                   <div style="background: #fff; border: 1px solid #fde68a; border-radius: var(--radius-md); padding: 0.6rem 0.875rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
@@ -903,8 +903,8 @@ function renderClientsGrid() {
       mStatus.freq === 'ninguna'
         ? 'Sin cuota'
         : mStatus.amount > 0
-          ? `${escapeHtml(c.moneda_simbolo || '$')}${mStatus.amount.toFixed(2)} / ${mStatus.periodLabel}`
-          : `Plan ${mStatus.periodLabel}`;
+          ? `$${mStatus.amount.toFixed(2)} USD / ${mStatus.periodLabel}`
+          : `Plan ${mStatus.periodLabel} (USD)`;
 
     const borderHighlight =
       mStatus.state === 'overdue'
@@ -1040,7 +1040,7 @@ function sendMaintenanceReminderWhatsApp(clientId) {
 
   const amountPart =
     mStatus.amount > 0
-      ? ` por un monto de *${client.moneda_simbolo || '$'}${mStatus.amount.toFixed(2)} ${client.moneda_codigo || 'USD'}*`
+      ? ` por un monto de *$${mStatus.amount.toFixed(2)} USD*`
       : '';
 
   let duePart = '';
