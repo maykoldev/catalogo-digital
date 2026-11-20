@@ -117,6 +117,27 @@ if (!clientCols.some(c => c.name === 'moneda_codigo')) {
     console.log('Nota migración moneda_codigo:', e.message);
   }
 }
+if (!clientCols.some(c => c.name === 'cuota_frecuencia')) {
+  try {
+    db.exec("ALTER TABLE clientes ADD COLUMN cuota_frecuencia TEXT DEFAULT 'mensual';");
+  } catch (e) {
+    console.log('Nota migración cuota_frecuencia:', e.message);
+  }
+}
+if (!clientCols.some(c => c.name === 'cuota_monto')) {
+  try {
+    db.exec('ALTER TABLE clientes ADD COLUMN cuota_monto REAL DEFAULT 0;');
+  } catch (e) {
+    console.log('Nota migración cuota_monto:', e.message);
+  }
+}
+if (!clientCols.some(c => c.name === 'cuota_vencimiento')) {
+  try {
+    db.exec("ALTER TABLE clientes ADD COLUMN cuota_vencimiento TEXT DEFAULT '';");
+  } catch (e) {
+    console.log('Nota migración cuota_vencimiento:', e.message);
+  }
+}
 
 // Migración para bases de datos existentes: asegurar columna cliente_id y precio_mayor en productos
 const productCols = db.prepare('PRAGMA table_info(productos)').all();

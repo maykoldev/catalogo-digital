@@ -611,6 +611,164 @@ function setupClientModalListeners() {
   document.getElementById('btn-pick-client-cover').addEventListener('click', () => {
     openGalleryModal(true, 'client-cover');
   });
+
+  const feePeriodSelect = document.getElementById('client-fee-period');
+  const feeDueInput = document.getElementById('client-fee-due');
+  if (feePeriodSelect && feeDueInput) {
+    feePeriodSelect.addEventListener('change', () => {
+      const freq = feePeriodSelect.value;
+      if (freq === 'ninguna') {
+        feeDueInput.value = '';
+      } else if (!adminState.activeEditingClientId || !feeDueInput.value) {
+        feeDueInput.value = computeNextDueDateStr(freq);
+      }
+    });
+  }
+}
+
+/**
+ * Calcula la próxima fecha de vencimiento (YYYY-MM-DD) según la frecuencia ('mensual' | 'trimestral' | 'anual')
+ */
+function computeNextDueDateStr(frecuencia = 'mensual', fromDateStr = '') {
+  if (frecuencia === 'ninguna') return '';
+  let base = new Date();
+  if (fromDateStr && /^\d{4}-\d{2}-\d{2}$/.test(fromDateStr)) {
+    const [y, m, d] = fromDateStr.split('-').map(Number);
+    const parsed = new Date(y, m - 1, d);
+    if (!isNaN(parsed.getTime()) && parsed > base) {
+      base = parsed;
+    }
+  }
+
+  const next = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  if (frecuencia === 'trimestral') {
+    next.setMonth(next.getMonth() + 3);
+  } else if (frecuencia === 'anual') {
+    next.setFullYear(next.getFullYear() + 1);
+  } else {
+    next.setMonth(next.getMonth() + 1);
+  }
+
+  const yyyy = next.getFullYear();
+  const mm = String(next.getMonth() + 1).padStart(2, '0');
+  const dd = String(next.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatDueDateDisplay(dateStr) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return 'Sin fecha asignada';
+  const [y, m, d] = dateStr.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+/**
+ * Evalúa el estado de vencimiento de la cuota de mantenimiento de un cliente (exclusivo Super-Admin)
+ */
+function getClientMaintenanceStatus(client) {
+  const freq = (client.cuota_frecuencia || 'mensual').toLowerCase();
+  const periodMap = {
+    mensual: 'Mensual',
+    trimestral: 'Trimestral',
+    anual: 'Anual',
+    ninguna: 'Sin cuota'
+  };
+  const periodLabel = periodMap[freq] || 'Mensual';
+  const amount = Number(client.cuota_monto) || 0;
+  const symbol = client.moneda_simbolo || '$';
+  const code = client.moneda_codigo || 'USD';
+  const dueStr = (client.cuota_vencimiento || '').trim();
+
+  if (freq === 'ninguna') {
+    return {
+      state: 'none',
+      freq,
+      periodLabel,
+      amount,
+      dueStr: '',
+      formattedDue: 'Exento',
+      daysDiff: null,
+      badgeHtml: '<span class="badge" style="background: #f1f5f9; color: #64748b;">Exento de cuota</span>'
+    };
+  }
+
+  if (!dueStr || !/^\d{4}-\d{2}-\d{2}$/.test(dueStr)) {
+    return {
+      state: 'unscheduled',
+      freq,
+      periodLabel,
+      amount,
+      dueStr: '',
+      formattedDue: 'Sin fecha definida',
+      daysDiff: null,
+      badgeHtml: `<span class="badge" style="background: #e0e7ff; color: #3730a3;">${periodLabel} (Sin fecha)</span>`
+    };
+  }
+
+  const [y, m, d] = dueStr.split('-').map(Number);
+  const dueDate = new Date(y, m - 1, d);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const daysDiff = Math.round((dueDate - today) / (1000 * 60 * 60 * 24));
+  const formattedDue = formatDueDateDisplay(dueStr);
+
+  if (daysDiff < 0) {
+    const overdueDays = Math.abs(daysDiff);
+    return {
+      state: 'overdue',
+      freq,
+      periodLabel,
+      amount,
+      symbol,
+      code,
+      dueStr,
+      formattedDue,
+      daysDiff,
+      badgeHtml: `<span class="badge badge-stock-out" style="font-size: 0.7rem;">🚨 Vencida hace ${overdueDays} día${overdueDays === 1 ? '' : 's'}</span>`
+    };
+  }
+
+  if (daysDiff === 0) {
+    return {
+      state: 'soon',
+      freq,
+      periodLabel,
+      amount,
+      symbol,
+      code,
+      dueStr,
+      formattedDue,
+      daysDiff,
+      badgeHtml: `<span class="badge badge-stock-out" style="font-size: 0.7rem;">⚠️ Vence HOY</span>`
+    };
+  }
+
+  if (daysDiff <= 7) {
+    return {
+      state: 'soon',
+      freq,
+      periodLabel,
+      amount,
+      symbol,
+      code,
+      dueStr,
+      formattedDue,
+      daysDiff,
+      badgeHtml: `<span class="badge badge-stock-low" style="font-size: 0.7rem;">⏳ Pronto a vencer (${daysDiff} día${daysDiff === 1 ? '' : 's'})</span>`
+    };
+  }
+
+  return {
+    state: 'ok',
+    freq,
+    periodLabel,
+    amount,
+    symbol,
+    code,
+    dueStr,
+    formattedDue,
+    daysDiff,
+    badgeHtml: `<span class="badge badge-stock-in" style="font-size: 0.7rem;">✅ Al día (en ${daysDiff} días)</span>`
+  };
 }
 
 // Carga Inicial de Datos
@@ -656,7 +814,10 @@ async function loadClients() {
 
 // Renderizar Cuadrícula de Clientes y sus Enlaces Únicos
 function renderClientsGrid() {
+  const alertsBanner = document.getElementById('clients-due-alerts-banner');
+
   if (adminState.clients.length === 0) {
+    if (alertsBanner) alertsBanner.style.display = 'none';
     clientsGrid.innerHTML = `
       <div style="grid-column: 1/-1; text-align: center; padding: 3rem; background: #fff; border-radius: var(--radius-lg); border: 1px dashed var(--border-light);">
         <p style="color: var(--text-muted); font-size: 1rem;">No hay clientes registrados aún.</p>
@@ -668,13 +829,92 @@ function renderClientsGrid() {
     return;
   }
 
+  // Evaluar alertas de cuotas vencidas o próximas a vencer (≤ 7 días)
+  const alertClients = [];
+  adminState.clients.forEach(c => {
+    const mStatus = getClientMaintenanceStatus(c);
+    if (mStatus.state === 'overdue' || mStatus.state === 'soon') {
+      alertClients.push({ client: c, mStatus });
+    }
+  });
+
+  // Actualizar indicador en la pestaña superior de Clientes si hay cobros pendientes
+  if (badgeTotalClients) {
+    if (alertClients.length > 0) {
+      badgeTotalClients.innerHTML = `${adminState.clients.length} <span title="${alertClients.length} cuota(s) por cobrar o próximas a vencer" style="margin-left: 4px; color: #b91c1c;">⚠️${alertClients.length}</span>`;
+    } else {
+      badgeTotalClients.textContent = adminState.clients.length;
+    }
+  }
+
+  if (alertsBanner) {
+    if (alertClients.length === 0) {
+      alertsBanner.style.display = 'none';
+      alertsBanner.innerHTML = '';
+    } else {
+      alertsBanner.style.display = 'block';
+      alertsBanner.innerHTML = `
+        <div style="background: #fffbeb; border: 1.5px solid #fcd34d; border-radius: var(--radius-lg); padding: 1rem 1.25rem; box-shadow: var(--shadow-sm);">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <div style="font-weight: 800; font-size: 0.95rem; color: #92400e; display: flex; align-items: center; gap: 0.5rem;">
+              <span>🔔</span>
+              <span>Recordatorios de Cobro de Mantenimiento (${alertClients.length} cliente${alertClients.length === 1 ? '' : 's'} pronto a vencer o vencido${alertClients.length === 1 ? '' : 's'})</span>
+            </div>
+            <span style="font-size: 0.75rem; color: #b45309; font-weight: 600;">🔒 Visible únicamente para Super-Admin</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            ${alertClients
+              .map(({ client, mStatus }) => {
+                const feeText =
+                  mStatus.amount > 0
+                    ? `${escapeHtml(client.moneda_simbolo || '$')}${mStatus.amount.toFixed(2)} (${mStatus.periodLabel})`
+                    : mStatus.periodLabel;
+                return `
+                  <div style="background: #fff; border: 1px solid #fde68a; border-radius: var(--radius-md); padding: 0.6rem 0.875rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+                      ${mStatus.badgeHtml}
+                      <strong style="font-size: 0.875rem; color: var(--text-main);">${escapeHtml(client.nombre)}</strong>
+                      <span style="font-size: 0.8rem; color: var(--text-muted);">• Cuota: <strong>${feeText}</strong> • Vencimiento: <strong>${mStatus.formattedDue}</strong></span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-whatsapp btn-sm" onclick="sendMaintenanceReminderWhatsApp(${Number(client.id)})">
+                        💬 Cobrar por WhatsApp
+                      </button>
+                      <button type="button" class="btn btn-secondary btn-sm" onclick="renewClientMaintenanceCycle(${Number(client.id)})" title="Marcar cuota como pagada y avanzar al próximo ciclo (${mStatus.periodLabel})">
+                        ✅ Ya Pagó (Renovar)
+                      </button>
+                    </div>
+                  </div>
+                `;
+              })
+              .join('')}
+          </div>
+        </div>
+      `;
+    }
+  }
+
   clientsGrid.innerHTML = adminState.clients.map(c => {
     const fullUniqueUrl = `${window.location.origin}${c.enlace_publico}`;
     const safeCoverUrl = c.portada_url ? String(c.portada_url).replace(/'/g, '%27').replace(/"/g, '%22') : '';
     const coverStyle = safeCoverUrl ? `background: url('${safeCoverUrl}') center/cover;` : 'background: linear-gradient(135deg, #1e1b4b, #4338ca);';
+    const mStatus = getClientMaintenanceStatus(c);
+    const feeDisplayAmount =
+      mStatus.freq === 'ninguna'
+        ? 'Sin cuota'
+        : mStatus.amount > 0
+          ? `${escapeHtml(c.moneda_simbolo || '$')}${mStatus.amount.toFixed(2)} / ${mStatus.periodLabel}`
+          : `Plan ${mStatus.periodLabel}`;
+
+    const borderHighlight =
+      mStatus.state === 'overdue'
+        ? 'border: 2px solid #ef4444;'
+        : mStatus.state === 'soon'
+          ? 'border: 2px solid #f59e0b;'
+          : '';
 
     return `
-      <div class="client-card">
+      <div class="client-card" style="${borderHighlight}">
         <!-- Banner de Portada y Logo del Cliente en Dashboard -->
         <div style="height: 85px; border-radius: var(--radius-md) var(--radius-md) 0 0; margin: -1.5rem -1.5rem 0.5rem -1.5rem; position: relative; overflow: hidden; ${coverStyle}">
           <div style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.65) 100%);"></div>
@@ -704,7 +944,7 @@ function renderClientsGrid() {
         <!-- Datos de Contacto y Métricas -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.8125rem; background: var(--bg-surface-secondary); padding: 0.75rem; border-radius: var(--radius-md);">
           <div>
-            <span style="color: var(--text-muted); display: block; font-size: 0.75rem;">WhatsApp Pedidos:</span>
+            <span style="color: var(--text-muted); display: block; font-size: 0.75rem;">WhatsApp Cliente:</span>
             <strong>${escapeHtml(c.telefono_whatsapp || 'No asignado')}</strong>
           </div>
           <div>
@@ -719,9 +959,39 @@ function renderClientsGrid() {
             <span style="color: var(--text-muted); display: block; font-size: 0.75rem;">Valor Catálogo:</span>
             <strong style="color: var(--primary);">${escapeHtml(c.moneda_simbolo || '$')}${Number(c.valor_inventario || 0).toFixed(2)}</strong>
           </div>
-          <div style="grid-column: 1 / -1;">
-            <span style="color: var(--text-muted); display: block; font-size: 0.75rem;">Slug Único:</span>
-            <code>${escapeHtml(c.slug)}</code>
+        </div>
+
+        <!-- Bloque de Cuota de Mantenimiento y Recordatorio por WhatsApp (Exclusivo Super-Admin) -->
+        <div style="background: ${mStatus.state === 'overdue' ? '#fef2f2' : mStatus.state === 'soon' ? '#fffbeb' : '#f8fafc'}; border: 1px solid ${mStatus.state === 'overdue' ? '#fecaca' : mStatus.state === 'soon' ? '#fde68a' : 'var(--border-light)'}; padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.8125rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem;">
+            <span style="font-weight: 800; color: var(--text-main); font-size: 0.78rem;">💳 Mantenimiento: ${feeDisplayAmount}</span>
+            ${mStatus.badgeHtml}
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem;">
+            Próximo cobro: <strong style="color: var(--text-main);">${mStatus.formattedDue}</strong>
+          </div>
+          <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+            <button
+              type="button"
+              class="btn btn-whatsapp btn-sm"
+              style="flex: 1; font-weight: 700;"
+              onclick="sendMaintenanceReminderWhatsApp(${Number(c.id)})"
+              title="Abrir WhatsApp del cliente con mensaje precargado recordándole el pago de su cuota de mantenimiento"
+            >
+              💬 Recordar Pago por WhatsApp
+            </button>
+            ${
+              mStatus.freq !== 'ninguna'
+                ? `<button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    onclick="renewClientMaintenanceCycle(${Number(c.id)})"
+                    title="Marcar como pagado y avanzar fecha de vencimiento (+1 ciclo ${mStatus.periodLabel.toLowerCase()})"
+                  >
+                    ✅ Renovar
+                  </button>`
+                : ''
+            }
           </div>
         </div>
 
@@ -733,7 +1003,7 @@ function renderClientsGrid() {
           <button class="btn btn-secondary btn-sm" style="border-color: var(--primary); color: var(--primary); font-weight: 700;" onclick="openBulkUploadModal(${Number(c.id)})" title="Subir productos masivamente (Excel / CSV) a esta tienda">
             📥 Masivo
           </button>
-          <button class="btn btn-secondary btn-sm" onclick="editClient(${Number(c.id)})" title="Editar datos">
+          <button class="btn btn-secondary btn-sm" onclick="editClient(${Number(c.id)})" title="Editar datos y cuota de mantenimiento">
             ✏️
           </button>
           <button class="btn btn-outline btn-sm" onclick="confirmDelete('client', ${Number(c.id)})" style="color: #ef4444;" title="Eliminar cliente y catálogo">
@@ -743,6 +1013,91 @@ function renderClientsGrid() {
       </div>
     `;
   }).join('');
+}
+
+/**
+ * Redirecciona al WhatsApp del cliente con un mensaje precargado recordándole el pago de su cuota de mantenimiento
+ */
+function sendMaintenanceReminderWhatsApp(clientId) {
+  const client = adminState.clients.find(c => Number(c.id) === Number(clientId));
+  if (!client) return;
+
+  const rawPhone = (client.telefono_whatsapp || '').replace(/[^0-9]/g, '');
+  if (!rawPhone || rawPhone.length < 7) {
+    showToast(`El cliente "${client.nombre}" no tiene un número de WhatsApp válido configurado. Edítalo primero.`, 'error');
+    openClientForm('edit', client);
+    return;
+  }
+
+  const mStatus = getClientMaintenanceStatus(client);
+  const fullCatalogUrl = `${window.location.origin}${client.enlace_publico}`;
+  const periodWord =
+    mStatus.freq === 'trimestral'
+      ? 'trimestral'
+      : mStatus.freq === 'anual'
+        ? 'anual'
+        : 'mensual';
+
+  const amountPart =
+    mStatus.amount > 0
+      ? ` por un monto de *${client.moneda_simbolo || '$'}${mStatus.amount.toFixed(2)} ${client.moneda_codigo || 'USD'}*`
+      : '';
+
+  let duePart = '';
+  if (mStatus.dueStr) {
+    if (mStatus.state === 'overdue') {
+      duePart = ` (cuya fecha de vencimiento fue el *${mStatus.formattedDue}*)`;
+    } else if (mStatus.daysDiff === 0) {
+      duePart = ` (con vencimiento el día de *hoy ${mStatus.formattedDue}*)`;
+    } else {
+      duePart = ` (con fecha de vencimiento el *${mStatus.formattedDue}*)`;
+    }
+  }
+
+  const message =
+    `¡Hola *${client.nombre}*! 👋 Espero que te encuentres excelente.\n\n` +
+    `Te escribo para recordarte amablemente el pago de la *cuota de mantenimiento ${periodWord}* de tu Catálogo Digital${amountPart}${duePart}.\n` +
+    `🔗 Tu catálogo: ${fullCatalogUrl}\n\n` +
+    `Una vez realizado el pago, por favor envíame el comprobante por esta vía para mantener tu catálogo activo y actualizado. ¡Muchas gracias!`;
+
+  const waUrl = `https://wa.me/${rawPhone}?text=${encodeURIComponent(message)}`;
+  window.open(waUrl, '_blank');
+}
+
+/**
+ * Marca la cuota actual como pagada y avanza automáticamente la fecha de vencimiento al siguiente ciclo (mensual/trimestral/anual)
+ */
+async function renewClientMaintenanceCycle(clientId) {
+  const client = adminState.clients.find(c => Number(c.id) === Number(clientId));
+  if (!client) return;
+
+  const freq = (client.cuota_frecuencia || 'mensual').toLowerCase();
+  const nextDue = computeNextDueDateStr(freq, client.cuota_vencimiento || '');
+
+  try {
+    const res = await fetch(`/api/admin/clientes/${client.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminState.token}`
+      },
+      body: JSON.stringify({
+        cuota_frecuencia: freq,
+        cuota_monto: client.cuota_monto || 0,
+        cuota_vencimiento: nextDue
+      })
+    });
+
+    const result = await res.json();
+    if (res.ok && result.success) {
+      showToast(`¡Ciclo renovado para "${client.nombre}"! Próximo vencimiento: ${formatDueDateDisplay(nextDue)}`);
+      await loadClients();
+    } else {
+      showToast(result.error || 'No se pudo renovar la fecha de vencimiento.', 'error');
+    }
+  } catch (err) {
+    showToast('Error de red al renovar la cuota del cliente.', 'error');
+  }
 }
 
 function copyClientPublicUrl(clientId) {
@@ -1250,6 +1605,22 @@ function openClientForm(mode, client = null) {
     document.getElementById('client-logo-url').value = client.logo_url || '';
     document.getElementById('client-cover-url').value = client.portada_url || '';
 
+    const feePeriodEl = document.getElementById('client-fee-period');
+    const feeAmountEl = document.getElementById('client-fee-amount');
+    const feeDueEl = document.getElementById('client-fee-due');
+    if (feePeriodEl) feePeriodEl.value = client.cuota_frecuencia || 'mensual';
+    if (feeAmountEl) {
+      feeAmountEl.value =
+        client.cuota_monto !== undefined && client.cuota_monto !== null && Number(client.cuota_monto) > 0
+          ? client.cuota_monto
+          : '';
+    }
+    if (feeDueEl) {
+      feeDueEl.value =
+        client.cuota_vencimiento ||
+        (client.cuota_frecuencia === 'ninguna' ? '' : computeNextDueDateStr(client.cuota_frecuencia || 'mensual'));
+    }
+
     // Configuración de moneda
     const clientCode = client.moneda_codigo || 'USD';
     const clientSymbol = client.moneda_simbolo || '$';
@@ -1295,6 +1666,12 @@ function openClientForm(mode, client = null) {
     document.getElementById('client-color-picker').value = '#4f46e5';
     document.getElementById('client-logo-url').value = '';
     document.getElementById('client-cover-url').value = '';
+    const feePeriodEl = document.getElementById('client-fee-period');
+    const feeAmountEl = document.getElementById('client-fee-amount');
+    const feeDueEl = document.getElementById('client-fee-due');
+    if (feePeriodEl) feePeriodEl.value = 'mensual';
+    if (feeAmountEl) feeAmountEl.value = '';
+    if (feeDueEl) feeDueEl.value = computeNextDueDateStr('mensual');
     currencyPresetSelect.value = 'USD|$';
     customCurrencyGroup.style.display = 'none';
     currencySymbolInput.value = '$';
@@ -1340,6 +1717,17 @@ async function handleClientFormSubmit(e) {
     moneda_simbolo = parts[1] || '$';
   }
 
+  const cuota_frecuencia = document.getElementById('client-fee-period')?.value || 'mensual';
+  const rawFeeAmount = document.getElementById('client-fee-amount')?.value?.trim() || '';
+  const cuota_monto =
+    rawFeeAmount !== '' && !isNaN(Number(rawFeeAmount)) && Number(rawFeeAmount) >= 0
+      ? parseFloat(rawFeeAmount)
+      : 0;
+  const cuota_vencimiento =
+    cuota_frecuencia === 'ninguna'
+      ? ''
+      : (document.getElementById('client-fee-due')?.value?.trim() || '');
+
   let body;
   let headers = { 'Authorization': `Bearer ${adminState.token}` };
 
@@ -1353,6 +1741,9 @@ async function handleClientFormSubmit(e) {
     body.append('color_primario', document.getElementById('client-color').value.trim());
     body.append('moneda_simbolo', moneda_simbolo);
     body.append('moneda_codigo', moneda_codigo);
+    body.append('cuota_frecuencia', cuota_frecuencia);
+    body.append('cuota_monto', String(cuota_monto));
+    body.append('cuota_vencimiento', cuota_vencimiento);
     body.append('logo_url', document.getElementById('client-logo-url').value.trim());
     body.append('portada_url', document.getElementById('client-cover-url').value.trim());
     if (logoFile) body.append('logo', logoFile);
@@ -1368,6 +1759,9 @@ async function handleClientFormSubmit(e) {
       color_primario: document.getElementById('client-color').value.trim(),
       moneda_simbolo,
       moneda_codigo,
+      cuota_frecuencia,
+      cuota_monto,
+      cuota_vencimiento,
       logo_url: document.getElementById('client-logo-url').value.trim(),
       portada_url: document.getElementById('client-cover-url').value.trim()
     });

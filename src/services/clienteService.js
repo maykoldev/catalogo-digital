@@ -48,6 +48,9 @@ class ClienteService {
       ...r,
       moneda_simbolo: r.moneda_simbolo || '$',
       moneda_codigo: r.moneda_codigo || 'USD',
+      cuota_frecuencia: r.cuota_frecuencia || 'mensual',
+      cuota_monto: r.cuota_monto !== undefined && r.cuota_monto !== null ? Number(r.cuota_monto) : 0,
+      cuota_vencimiento: r.cuota_vencimiento || '',
       valor_inventario: Number(Number(r.valor_inventario).toFixed(2)),
       enlace_publico: `/c/${r.slug}`
     }));
@@ -64,6 +67,9 @@ class ClienteService {
       ...client,
       moneda_simbolo: client.moneda_simbolo || '$',
       moneda_codigo: client.moneda_codigo || 'USD',
+      cuota_frecuencia: client.cuota_frecuencia || 'mensual',
+      cuota_monto: client.cuota_monto !== undefined && client.cuota_monto !== null ? Number(client.cuota_monto) : 0,
+      cuota_vencimiento: client.cuota_vencimiento || '',
       enlace_publico: `/c/${client.slug}`
     };
   }
@@ -91,7 +97,7 @@ class ClienteService {
   /**
    * Registra un nuevo cliente con moneda personalizada, logo y portada
    */
-  static create({ nombre, slug, descripcion, telefono_whatsapp, email, logo_url, portada_url, color_primario, moneda_simbolo, moneda_codigo }) {
+  static create({ nombre, slug, descripcion, telefono_whatsapp, email, logo_url, portada_url, color_primario, moneda_simbolo, moneda_codigo, cuota_frecuencia, cuota_monto, cuota_vencimiento }) {
     if (!nombre || nombre.trim() === '') {
       throw new Error('El nombre del cliente o empresa es obligatorio.');
     }
@@ -106,11 +112,12 @@ class ClienteService {
     }
 
     const codigoAcceso = `acc_${crypto.randomBytes(4).toString('hex')}`;
+    const parsedMonto = cuota_monto !== undefined && cuota_monto !== '' && !isNaN(Number(cuota_monto)) ? Math.max(0, Number(cuota_monto)) : 0;
 
     const stmt = db.prepare(`
       INSERT INTO clientes (
-        nombre, slug, codigo_acceso, descripcion, telefono_whatsapp, email, logo_url, portada_url, color_primario, moneda_simbolo, moneda_codigo, activo
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        nombre, slug, codigo_acceso, descripcion, telefono_whatsapp, email, logo_url, portada_url, color_primario, moneda_simbolo, moneda_codigo, cuota_frecuencia, cuota_monto, cuota_vencimiento, activo
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `);
 
     const result = stmt.run(
@@ -124,16 +131,19 @@ class ClienteService {
       (portada_url || '').trim(),
       color_primario || '#4f46e5',
       (moneda_simbolo || '$').trim(),
-      (moneda_codigo || 'USD').trim()
+      (moneda_codigo || 'USD').trim(),
+      (cuota_frecuencia || 'mensual').trim(),
+      parsedMonto,
+      (cuota_vencimiento || '').trim()
     );
 
     return this.getById(result.lastInsertRowid);
   }
 
   /**
-   * Actualiza los datos de un cliente incluyendo moneda, logotipo y foto de portada
+   * Actualiza los datos de un cliente incluyendo moneda, logotipo, foto de portada y cuota de mantenimiento
    */
-  static update(id, { nombre, slug, descripcion, telefono_whatsapp, email, logo_url, portada_url, color_primario, moneda_simbolo, moneda_codigo, activo }) {
+  static update(id, { nombre, slug, descripcion, telefono_whatsapp, email, logo_url, portada_url, color_primario, moneda_simbolo, moneda_codigo, cuota_frecuencia, cuota_monto, cuota_vencimiento, activo }) {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error('Cliente no encontrado.');
@@ -157,6 +167,11 @@ class ClienteService {
     const newColor = color_primario !== undefined ? color_primario.trim() : existing.color_primario;
     const newSimbolo = moneda_simbolo !== undefined ? moneda_simbolo.trim() : existing.moneda_simbolo;
     const newCodigo = moneda_codigo !== undefined ? moneda_codigo.trim() : existing.moneda_codigo;
+    const newFrecuencia = cuota_frecuencia !== undefined ? cuota_frecuencia.trim() : (existing.cuota_frecuencia || 'mensual');
+    const newMonto = cuota_monto !== undefined && cuota_monto !== '' && !isNaN(Number(cuota_monto))
+      ? Math.max(0, Number(cuota_monto))
+      : (existing.cuota_monto || 0);
+    const newVencimiento = cuota_vencimiento !== undefined ? cuota_vencimiento.trim() : (existing.cuota_vencimiento || '');
     const newActivo = activo !== undefined ? (activo ? 1 : 0) : existing.activo;
 
     const stmt = db.prepare(`
@@ -171,12 +186,15 @@ class ClienteService {
         color_primario = ?,
         moneda_simbolo = ?,
         moneda_codigo = ?,
+        cuota_frecuencia = ?,
+        cuota_monto = ?,
+        cuota_vencimiento = ?,
         activo = ?,
         updated_at = (datetime('now', 'localtime'))
       WHERE id = ?
     `);
 
-    stmt.run(newNombre, finalSlug, newDesc, newTel, newEmail, newLogo, newPortada, newColor, newSimbolo, newCodigo, newActivo, Number(id));
+    stmt.run(newNombre, finalSlug, newDesc, newTel, newEmail, newLogo, newPortada, newColor, newSimbolo, newCodigo, newFrecuencia, newMonto, newVencimiento, newActivo, Number(id));
     return this.getById(id);
   }
 

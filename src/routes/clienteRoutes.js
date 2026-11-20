@@ -11,6 +11,15 @@ const { supabase, supabaseAdmin } = require('../lib/supabaseClient');
 // RUTAS PÚBLICAS (Sin Autenticación)
 // ==========================================
 
+function sanitizePublicClient(c) {
+  if (!c) return null;
+  const copy = { ...c };
+  delete copy.cuota_frecuencia;
+  delete copy.cuota_monto;
+  delete copy.cuota_vencimiento;
+  return copy;
+}
+
 /**
  * GET /api/public/catalogo/:slugOrCode
  * Devuelve la información del catálogo de un cliente, su logotipo, foto de portada y productos.
@@ -39,7 +48,7 @@ router.get('/public/catalogo/:slugOrCode', async (req, res) => {
         const categories = await SupabaseCatalogStore.getCategories(sbClient.id);
         return res.json({
           success: true,
-          cliente: sbClient,
+          cliente: sanitizePublicClient(sbClient),
           categorias: categories,
           total_productos: products.length,
           productos: products
@@ -70,7 +79,7 @@ router.get('/public/catalogo/:slugOrCode', async (req, res) => {
 
     return res.json({
       success: true,
-      cliente: client,
+      cliente: sanitizePublicClient(client),
       categorias: categories,
       total_productos: products.length,
       productos: products
@@ -137,7 +146,19 @@ router.get('/admin/clientes/:id', authMiddleware, async (req, res) => {
  */
 router.post('/admin/clientes', authMiddleware, clientUploadFields, async (req, res) => {
   try {
-    const { nombre, slug, descripcion, telefono_whatsapp, email, color_primario, moneda_simbolo, moneda_codigo } = req.body;
+    const {
+      nombre,
+      slug,
+      descripcion,
+      telefono_whatsapp,
+      email,
+      color_primario,
+      moneda_simbolo,
+      moneda_codigo,
+      cuota_frecuencia,
+      cuota_monto,
+      cuota_vencimiento
+    } = req.body;
     let { logo_url, portada_url } = req.body;
 
     const folderHint = SupabaseCatalogStore.generateSlug(slug || nombre || 'tiendas');
@@ -162,7 +183,10 @@ router.post('/admin/clientes', authMiddleware, clientUploadFields, async (req, r
           portada_url,
           color_primario,
           moneda_simbolo,
-          moneda_codigo
+          moneda_codigo,
+          cuota_frecuencia,
+          cuota_monto,
+          cuota_vencimiento
         })
       : ClienteService.create({
           nombre,
@@ -174,7 +198,10 @@ router.post('/admin/clientes', authMiddleware, clientUploadFields, async (req, r
           portada_url,
           color_primario,
           moneda_simbolo,
-          moneda_codigo
+          moneda_codigo,
+          cuota_frecuencia,
+          cuota_monto,
+          cuota_vencimiento
         });
 
     return res.status(201).json({
@@ -189,11 +216,24 @@ router.post('/admin/clientes', authMiddleware, clientUploadFields, async (req, r
 
 /**
  * PUT /api/admin/clientes/:id
- * Actualiza datos, logotipo, portada y moneda del cliente en Supabase
+ * Actualiza datos, logotipo, portada, moneda y cuota de mantenimiento del cliente en Supabase
  */
 router.put('/admin/clientes/:id', authMiddleware, clientUploadFields, async (req, res) => {
   try {
-    const { nombre, slug, descripcion, telefono_whatsapp, email, color_primario, moneda_simbolo, moneda_codigo, activo } = req.body;
+    const {
+      nombre,
+      slug,
+      descripcion,
+      telefono_whatsapp,
+      email,
+      color_primario,
+      moneda_simbolo,
+      moneda_codigo,
+      cuota_frecuencia,
+      cuota_monto,
+      cuota_vencimiento,
+      activo
+    } = req.body;
     let { logo_url, portada_url } = req.body;
 
     const folderHint = SupabaseCatalogStore.generateSlug(slug || nombre || 'tiendas');
@@ -219,6 +259,9 @@ router.put('/admin/clientes/:id', authMiddleware, clientUploadFields, async (req
           color_primario,
           moneda_simbolo,
           moneda_codigo,
+          cuota_frecuencia,
+          cuota_monto,
+          cuota_vencimiento,
           activo
         })
       : ClienteService.update(req.params.id, {
@@ -232,6 +275,9 @@ router.put('/admin/clientes/:id', authMiddleware, clientUploadFields, async (req
           color_primario,
           moneda_simbolo,
           moneda_codigo,
+          cuota_frecuencia,
+          cuota_monto,
+          cuota_vencimiento,
           activo
         });
 
@@ -372,7 +418,7 @@ const handleGetClientes = async (req, res) => {
           return res.status(200).json({
             success: true,
             source: 'supabase',
-            data: enriched
+            data: sanitizePublicClient(enriched)
           });
         }
       }
@@ -385,7 +431,7 @@ const handleGetClientes = async (req, res) => {
         return res.status(200).json({
           success: true,
           source: 'local',
-          data: localClient
+          data: sanitizePublicClient(localClient)
         });
       }
 
@@ -415,7 +461,7 @@ const handleGetClientes = async (req, res) => {
     }
 
     const meta = await SupabaseCatalogStore._loadMeta();
-    const normalizedList = (data || []).map((c) => SupabaseCatalogStore.enrichClientRecord(c, meta.clients));
+    const normalizedList = (data || []).map((c) => sanitizePublicClient(SupabaseCatalogStore.enrichClientRecord(c, meta.clients)));
 
     return res.status(200).json({
       success: true,

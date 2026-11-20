@@ -115,6 +115,15 @@ class SupabaseCatalogStore {
   static enrichClientRecord(c, metaClients = {}) {
     if (!c) return null;
     const extra = metaClients[String(c.id)] || {};
+    const rawMonto =
+      c.cuota_monto !== undefined && c.cuota_monto !== null
+        ? c.cuota_monto
+        : extra.cuota_monto;
+    const parsedMonto =
+      rawMonto !== undefined && rawMonto !== null && rawMonto !== '' && !isNaN(Number(rawMonto))
+        ? Math.max(0, Number(rawMonto))
+        : 0;
+
     return {
       ...c,
       descripcion:
@@ -127,6 +136,9 @@ class SupabaseCatalogStore {
       color_primario: c.color_primario || extra.color_primario || '#4f46e5',
       moneda_simbolo: c.moneda_simbolo || extra.moneda_simbolo || '$',
       moneda_codigo: c.moneda_codigo || extra.moneda_codigo || 'USD',
+      cuota_frecuencia: c.cuota_frecuencia || extra.cuota_frecuencia || 'mensual',
+      cuota_monto: parsedMonto,
+      cuota_vencimiento: c.cuota_vencimiento || extra.cuota_vencimiento || '',
       activo: c.activo !== undefined ? c.activo : extra.activo !== undefined ? extra.activo : 1,
       enlace_publico: `/c/${c.slug}`
     };
@@ -485,7 +497,10 @@ class SupabaseCatalogStore {
     portada_url,
     color_primario,
     moneda_simbolo,
-    moneda_codigo
+    moneda_codigo,
+    cuota_frecuencia,
+    cuota_monto,
+    cuota_vencimiento
   }) {
     if (!nombre || !nombre.trim()) {
       throw new Error('El nombre del cliente o comercio es obligatorio.');
@@ -521,6 +536,11 @@ class SupabaseCatalogStore {
       throw new Error(error.message || 'No se pudo registrar el cliente en Supabase.');
     }
 
+    const parsedMonto =
+      cuota_monto !== undefined && cuota_monto !== null && cuota_monto !== '' && !isNaN(Number(cuota_monto))
+        ? Math.max(0, Number(cuota_monto))
+        : 0;
+
     const meta = await this._loadMeta(true);
     meta.clients[String(inserted.id)] = {
       descripcion: (descripcion || '').trim(),
@@ -529,6 +549,9 @@ class SupabaseCatalogStore {
       color_primario: color_primario || '#4f46e5',
       moneda_simbolo: (moneda_simbolo || '$').trim(),
       moneda_codigo: (moneda_codigo || 'USD').trim().toUpperCase(),
+      cuota_frecuencia: (cuota_frecuencia || 'mensual').trim(),
+      cuota_monto: parsedMonto,
+      cuota_vencimiento: (cuota_vencimiento || '').trim(),
       activo: 1
     };
     await this._saveMeta(meta);
@@ -549,6 +572,9 @@ class SupabaseCatalogStore {
       color_primario,
       moneda_simbolo,
       moneda_codigo,
+      cuota_frecuencia,
+      cuota_monto,
+      cuota_vencimiento,
       activo
     }
   ) {
@@ -593,6 +619,15 @@ class SupabaseCatalogStore {
 
     const meta = await this._loadMeta(true);
     const prevExtra = meta.clients[String(id)] || {};
+    const nextMonto =
+      cuota_monto !== undefined
+        ? cuota_monto !== null && cuota_monto !== '' && !isNaN(Number(cuota_monto))
+          ? Math.max(0, Number(cuota_monto))
+          : 0
+        : prevExtra.cuota_monto !== undefined
+          ? Number(prevExtra.cuota_monto)
+          : 0;
+
     meta.clients[String(id)] = {
       descripcion: descripcion !== undefined ? descripcion.trim() : prevExtra.descripcion || '',
       email: email !== undefined ? email.trim() : prevExtra.email || '',
@@ -603,6 +638,11 @@ class SupabaseCatalogStore {
         moneda_codigo !== undefined
           ? moneda_codigo.trim().toUpperCase()
           : prevExtra.moneda_codigo || 'USD',
+      cuota_frecuencia:
+        cuota_frecuencia !== undefined ? cuota_frecuencia.trim() : prevExtra.cuota_frecuencia || 'mensual',
+      cuota_monto: nextMonto,
+      cuota_vencimiento:
+        cuota_vencimiento !== undefined ? cuota_vencimiento.trim() : prevExtra.cuota_vencimiento || '',
       activo: activo !== undefined ? (activo ? 1 : 0) : prevExtra.activo !== undefined ? prevExtra.activo : 1
     };
     await this._saveMeta(meta);

@@ -366,6 +366,9 @@
         </button>
       </div>
 
+      <!-- Panel de Alertas de Vencimiento de Cuotas (Solo Super-Admin) -->
+      <div id="clients-due-alerts-banner" style="display: none; margin-bottom: 1.5rem;"></div>
+
       <!-- Cuadrícula de Clientes y sus Enlaces Únicos -->
       <div id="clients-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.5rem;">
         <!-- Se puebla dinámicamente con admin.js -->
@@ -453,6 +456,43 @@
           <div class="form-group">
             <label for="client-desc" class="form-label">Descripción de Bienvenida en el Catálogo</label>
             <textarea id="client-desc" class="form-control" rows="2" placeholder="Breve mensaje o especialidad de la tienda para sus clientes..."></textarea>
+          </div>
+
+          <!-- Configuración de Cuota de Mantenimiento (Privado para Super-Admin) -->
+          <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 0.875rem; margin-bottom: 1.25rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="font-size: 0.85rem; font-weight: 800; color: var(--text-main);">
+                💳 Cuota de Mantenimiento del Catálogo
+              </div>
+              <span class="badge" style="background: #e0e7ff; color: #3730a3; font-size: 0.68rem;">
+                🔒 Solo visible para ti (Super-Admin)
+              </span>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group" style="margin-bottom: 0.5rem;">
+                <label for="client-fee-period" class="form-label" style="font-size: 0.8rem;">Frecuencia de Pago</label>
+                <select id="client-fee-period" class="form-select">
+                  <option value="mensual">📅 Mensual (cada mes)</option>
+                  <option value="trimestral">📆 Trimestral (cada 3 meses)</option>
+                  <option value="anual">🗓️ Anual (cada año)</option>
+                  <option value="ninguna">⚪ Sin cuota / Exento</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 0.5rem;">
+                <label for="client-fee-amount" class="form-label" style="font-size: 0.8rem;">Monto de la Cuota</label>
+                <input type="number" id="client-fee-amount" class="form-control" step="0.01" min="0" placeholder="Ej: 15.00" />
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="client-fee-due" class="form-label" style="font-size: 0.8rem;">Fecha del Próximo Vencimiento / Cobro</label>
+              <input type="date" id="client-fee-due" class="form-control" />
+              <small style="color: var(--text-subtle); font-size: 0.72rem; display: block; margin-top: 0.25rem;">
+                El panel te avisará automáticamente cuando un cliente esté próximo a vencer (≤ 7 días) o vencido.
+              </small>
+            </div>
           </div>
 
           <!-- Personalización Visual: Logotipo de la Tienda -->
