@@ -181,6 +181,14 @@ class SupabaseCatalogStore {
     };
   }
 
+  static parseMostrarStock(val, fallback = false) {
+    if (val === undefined || val === null || val === '') return Boolean(fallback);
+    if (typeof val === 'boolean') return val;
+    if (typeof val === 'number') return val === 1;
+    const str = String(val).trim().toLowerCase();
+    return str === 'true' || str === '1' || str === 'si' || str === 'sí' || str === 'yes';
+  }
+
   static enrichProductRecord(p, metaProducts = {}, clientsMap = new Map()) {
     if (!p) return null;
     const extra = metaProducts[String(p.id)] || {};
@@ -192,6 +200,9 @@ class SupabaseCatalogStore {
         ? Number(Number(rawMayor).toFixed(2))
         : null;
 
+    const rawMostrarStock = p.mostrar_stock !== undefined ? p.mostrar_stock : extra.mostrar_stock;
+    const mostrar_stock = this.parseMostrarStock(rawMostrarStock, false);
+
     const normalizedImg = this.normalizeImagesInput(p.imagenes || extra.imagenes, p.imagen_url);
 
     return {
@@ -199,6 +210,7 @@ class SupabaseCatalogStore {
       precio: Number(p.precio) || 0,
       precio_mayor: parsedMayor,
       inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 0,
+      mostrar_stock,
       descripcion: p.descripcion || '',
       categoria: p.categoria || extra.categoria || 'General',
       imagen_url: normalizedImg.imagen_url,
@@ -733,7 +745,7 @@ class SupabaseCatalogStore {
     return enriched;
   }
 
-  static async createProduct({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes }) {
+  static async createProduct({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     if (!cliente_id) {
       throw new Error('Debe seleccionar el cliente o tienda al que pertenece el producto.');
     }
@@ -754,6 +766,7 @@ class SupabaseCatalogStore {
         ? Number(Number(precio_mayor).toFixed(2))
         : null;
 
+    const parsedMostrarStock = this.parseMostrarStock(mostrar_stock, false);
     const normalizedImg = this.normalizeImagesInput(imagenes, imagen_url);
 
     const { data: inserted, error } = await supabaseAdmin
@@ -783,6 +796,7 @@ class SupabaseCatalogStore {
     meta.products[String(inserted.id)] = {
       categoria: cleanCat,
       precio_mayor: parsedMayor,
+      mostrar_stock: parsedMostrarStock,
       imagenes: normalizedImg.imagenes
     };
     await this._saveMeta(meta);
@@ -826,6 +840,7 @@ class SupabaseCatalogStore {
         ? Number(raw.inventario)
         : 10;
       const inventario = !isNaN(rawInv) && rawInv >= 0 ? Math.floor(rawInv) : 10;
+      const mostrar_stock = this.parseMostrarStock(raw.mostrar_stock, false);
 
       const categoria = raw.categoria && String(raw.categoria).trim() ? String(raw.categoria).trim() : 'General';
       const descripcion = raw.descripcion && String(raw.descripcion).trim() ? String(raw.descripcion).trim() : null;
@@ -838,6 +853,7 @@ class SupabaseCatalogStore {
         precio,
         precio_mayor,
         inventario,
+        mostrar_stock,
         categoria,
         imagen_url: normalizedImg.imagen_url,
         imagenes: normalizedImg.imagenes
@@ -872,6 +888,7 @@ class SupabaseCatalogStore {
       meta.products[String(row.id)] = {
         categoria: sourceItem.categoria || 'General',
         precio_mayor: sourceItem.precio_mayor,
+        mostrar_stock: Boolean(sourceItem.mostrar_stock),
         imagenes: sourceItem.imagenes || [row.imagen_url]
       };
     });
@@ -887,7 +904,7 @@ class SupabaseCatalogStore {
     };
   }
 
-  static async updateProduct(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes }) {
+  static async updateProduct(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     const existing = await this.getProductById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
@@ -938,10 +955,16 @@ class SupabaseCatalogStore {
           ? prevProdMeta.precio_mayor
           : existing.precio_mayor || null;
 
+    const nextMostrarStock =
+      mostrar_stock !== undefined
+        ? this.parseMostrarStock(mostrar_stock, Boolean(existing.mostrar_stock))
+        : this.parseMostrarStock(prevProdMeta.mostrar_stock, Boolean(existing.mostrar_stock));
+
     meta.products[String(id)] = {
       ...prevProdMeta,
       categoria: nextCat,
       precio_mayor: nextMayor,
+      mostrar_stock: nextMostrarStock,
       imagenes: normalizedImg.imagenes
     };
     await this._saveMeta(meta);

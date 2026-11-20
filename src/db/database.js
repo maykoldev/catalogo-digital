@@ -142,6 +142,13 @@ if (!productCols.some(c => c.name === 'imagenes_json')) {
     console.log('Nota de migración imagenes_json:', e.message);
   }
 }
+if (!productCols.some(c => c.name === 'mostrar_stock')) {
+  try {
+    db.exec('ALTER TABLE productos ADD COLUMN mostrar_stock INTEGER DEFAULT 0;');
+  } catch (e) {
+    console.log('Nota de migración mostrar_stock:', e.message);
+  }
+}
 
 // Índices para optimización de consultas multi-inquilino
 db.exec(`

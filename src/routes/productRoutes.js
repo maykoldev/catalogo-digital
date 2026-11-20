@@ -406,7 +406,7 @@ router.get('/categories', async (req, res) => {
  */
 router.post('/products', authMiddleware, uploadProductImages, async (req, res) => {
   try {
-    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria } = req.body;
+    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria } = req.body;
 
     let targetFolder = 'subidas';
     if (SupabaseCatalogStore.isAvailable && cliente_id) {
@@ -429,6 +429,7 @@ router.post('/products', authMiddleware, uploadProductImages, async (req, res) =
           precio,
           precio_mayor,
           inventario,
+          mostrar_stock,
           categoria,
           imagen_url: finalImageUrl,
           imagenes: finalImages
@@ -440,6 +441,7 @@ router.post('/products', authMiddleware, uploadProductImages, async (req, res) =
           precio,
           precio_mayor,
           inventario,
+          mostrar_stock,
           categoria,
           imagen_url: finalImageUrl,
           imagenes: finalImages
@@ -462,7 +464,7 @@ router.post('/products', authMiddleware, uploadProductImages, async (req, res) =
  */
 router.put('/products/:id', authMiddleware, uploadProductImages, async (req, res) => {
   try {
-    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria } = req.body;
+    const { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria } = req.body;
 
     let targetFolder = 'subidas';
     if (SupabaseCatalogStore.isAvailable && cliente_id) {
@@ -493,6 +495,7 @@ router.put('/products/:id', authMiddleware, uploadProductImages, async (req, res
           precio,
           precio_mayor,
           inventario,
+          mostrar_stock,
           categoria,
           imagen_url: finalImageUrl,
           imagenes: finalImages
@@ -504,6 +507,7 @@ router.put('/products/:id', authMiddleware, uploadProductImages, async (req, res
           precio,
           precio_mayor,
           inventario,
+          mostrar_stock,
           categoria,
           imagen_url: finalImageUrl,
           imagenes: finalImages
@@ -775,13 +779,16 @@ const handleRegisterSupabaseProducto = async (req, res) => {
         precio_mayor !== undefined && precio_mayor !== null && precio_mayor !== '' && !isNaN(Number(precio_mayor)) && Number(precio_mayor) > 0
           ? Number(Number(precio_mayor).toFixed(2))
           : null;
+      const parsedMostrarStock = SupabaseCatalogStore.parseMostrarStock(req.body.mostrar_stock, false);
       meta.products[String(created.id)] = {
         categoria: categoria ? String(categoria).trim() : 'General',
         precio_mayor: parsedMayor,
+        mostrar_stock: parsedMostrarStock,
         imagenes
       };
       await SupabaseCatalogStore._saveMeta(meta);
       created.imagenes = imagenes;
+      created.mostrar_stock = parsedMostrarStock;
     }
 
     return res.status(201).json({

@@ -58,12 +58,28 @@ class ProductService {
   }
 
   /**
-   * Formatea una fila de SQLite asegurando el arreglo `imagenes`
+   * Normaliza el valor booleano mostrar_stock (por defecto false)
+   */
+  static parseMostrarStock(val, fallback = false) {
+    if (val === undefined || val === null || val === '') return Boolean(fallback);
+    if (typeof val === 'boolean') return val;
+    if (typeof val === 'number') return val === 1;
+    const str = String(val).trim().toLowerCase();
+    return str === 'true' || str === '1' || str === 'si' || str === 'sí' || str === 'yes';
+  }
+
+  /**
+   * Formatea una fila de SQLite asegurando el arreglo `imagenes` y `mostrar_stock`
    */
   static formatRow(row) {
     if (!row) return null;
     const { imagen_url, imagenes } = this.normalizeImagesInput(row.imagenes_json, row.imagen_url);
-    const copy = { ...row, imagen_url, imagenes };
+    const copy = {
+      ...row,
+      mostrar_stock: Boolean(row.mostrar_stock),
+      imagen_url,
+      imagenes
+    };
     delete copy.imagenes_json;
     return copy;
   }
@@ -142,7 +158,7 @@ class ProductService {
   /**
    * Crea un producto asociado a un cliente específico
    */
-  static create({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes }) {
+  static create({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     if (!cliente_id) {
       throw new Error('Debe especificar el cliente o empresa al que pertenece el producto.');
     }
@@ -170,11 +186,12 @@ class ProductService {
         ? Number(Number(precio_mayor).toFixed(2))
         : null;
 
+    const parsedMostrarStock = this.parseMostrarStock(mostrar_stock, false) ? 1 : 0;
     const normalizedImg = this.normalizeImagesInput(imagenes, imagen_url);
 
     const stmt = db.prepare(`
-      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -184,6 +201,7 @@ class ProductService {
       Number(precio),
       parsedMayor,
       Math.floor(Number(inventario)),
+      parsedMostrarStock,
       categoria.trim(),
       normalizedImg.imagen_url,
       JSON.stringify(normalizedImg.imagenes)
@@ -211,8 +229,8 @@ class ProductService {
     }
 
     const stmt = db.prepare(`
-      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((items) => {
@@ -230,6 +248,7 @@ class ProductService {
           ? Number(raw.inventario)
           : 10;
         const inventario = !isNaN(rawInv) && rawInv >= 0 ? Math.floor(rawInv) : 10;
+        const mostrar_stock = this.parseMostrarStock(raw.mostrar_stock, false) ? 1 : 0;
         const categoria = raw.categoria && String(raw.categoria).trim() ? String(raw.categoria).trim() : 'General';
         const descripcion = raw.descripcion ? String(raw.descripcion).trim() : '';
         const normalizedImg = this.normalizeImagesInput(raw.imagenes, raw.imagen_url);
@@ -241,6 +260,7 @@ class ProductService {
           precio,
           precio_mayor,
           inventario,
+          mostrar_stock,
           categoria,
           normalizedImg.imagen_url,
           JSON.stringify(normalizedImg.imagenes)
@@ -265,7 +285,7 @@ class ProductService {
   /**
    * Actualiza los datos de un producto
    */
-  static update(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, categoria, imagen_url, imagenes }) {
+  static update(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
@@ -282,6 +302,14 @@ class ProductService {
           : null
         : existing.precio_mayor;
     const newInventario = inventario !== undefined ? Math.floor(Number(inventario)) : existing.inventario;
+    const newMostrarStock =
+      mostrar_stock !== undefined
+        ? this.parseMostrarStock(mostrar_stock, existing.mostrar_stock)
+          ? 1
+          : 0
+        : existing.mostrar_stock
+          ? 1
+          : 0;
     const newCat = categoria !== undefined ? categoria.trim() : existing.categoria;
 
     const normalizedImg =
@@ -294,7 +322,7 @@ class ProductService {
 
     const stmt = db.prepare(`
       UPDATE productos
-      SET cliente_id = ?, nombre = ?, descripcion = ?, precio = ?, precio_mayor = ?, inventario = ?, categoria = ?, imagen_url = ?, imagenes_json = ?, updated_at = (datetime('now', 'localtime'))
+      SET cliente_id = ?, nombre = ?, descripcion = ?, precio = ?, precio_mayor = ?, inventario = ?, mostrar_stock = ?, categoria = ?, imagen_url = ?, imagenes_json = ?, updated_at = (datetime('now', 'localtime'))
       WHERE id = ?
     `);
 
@@ -305,6 +333,7 @@ class ProductService {
       newPrecio,
       newPrecioMayor,
       newInventario,
+      newMostrarStock,
       newCat,
       normalizedImg.imagen_url,
       JSON.stringify(normalizedImg.imagenes),

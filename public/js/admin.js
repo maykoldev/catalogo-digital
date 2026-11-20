@@ -940,7 +940,12 @@ function renderAdminTable(products) {
             <span style="font-weight: 800; min-width: 2rem; text-align: center;">${p.inventario}</span>
             <button type="button" onclick="quickStockAdjust(${Number(p.id)}, 1)" title="Añadir 1 unidad">+</button>
           </div>
-          <div style="margin-top: 4px;">${stockBadge}</div>
+          <div style="margin-top: 4px; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            ${stockBadge}
+            <span class="badge" style="background: ${p.mostrar_stock ? '#e0e7ff' : '#f1f5f9'}; color: ${p.mostrar_stock ? '#3730a3' : '#64748b'}; font-size: 0.65rem;" title="${p.mostrar_stock ? 'El cliente ve la cantidad disponible en el catálogo' : 'Cantidad oculta en el catálogo público (solo visible para ti)'}">
+              ${p.mostrar_stock ? '👁️ Visible' : '🔒 Oculto'}
+            </span>
+          </div>
         </td>
         <td style="white-space: nowrap; text-align: center;">
           <div style="display: flex; gap: 0.375rem; justify-content: center;">
@@ -1061,6 +1066,8 @@ function openProductForm(mode, product = null) {
         ? product.precio_mayor
         : '';
     document.getElementById('prod-stock').value = product.inventario;
+    const showStockEl = document.getElementById('prod-show-stock');
+    if (showStockEl) showStockEl.checked = Boolean(product.mostrar_stock);
     document.getElementById('prod-description').value = product.descripcion;
 
     const existingList =
@@ -1092,6 +1099,8 @@ function openProductForm(mode, product = null) {
     document.getElementById('prod-id').value = '';
     const wholesaleEl = document.getElementById('prod-wholesale-price');
     if (wholesaleEl) wholesaleEl.value = '';
+    const showStockEl = document.getElementById('prod-show-stock');
+    if (showStockEl) showStockEl.checked = false;
   }
 
   renderProductImagesGallery();
@@ -1157,6 +1166,7 @@ async function handleProductFormSubmit(e) {
     rawWholesale !== '' && !isNaN(Number(rawWholesale)) && Number(rawWholesale) > 0
       ? parseFloat(rawWholesale)
       : null;
+  const mostrarStock = Boolean(document.getElementById('prod-show-stock')?.checked);
 
   if (filesToUpload.length > 0) {
     formData = new FormData();
@@ -1166,6 +1176,7 @@ async function handleProductFormSubmit(e) {
     formData.append('precio', document.getElementById('prod-price').value);
     formData.append('precio_mayor', parsedWholesale !== null ? String(parsedWholesale) : '');
     formData.append('inventario', document.getElementById('prod-stock').value);
+    formData.append('mostrar_stock', mostrarStock ? 'true' : 'false');
     formData.append('descripcion', document.getElementById('prod-description').value);
     formData.append('imagenes', JSON.stringify(orderedImageEntries));
     filesToUpload.forEach((f) => {
@@ -1180,6 +1191,7 @@ async function handleProductFormSubmit(e) {
       precio: parseFloat(document.getElementById('prod-price').value),
       precio_mayor: parsedWholesale,
       inventario: parseInt(document.getElementById('prod-stock').value, 10),
+      mostrar_stock: mostrarStock,
       descripcion: document.getElementById('prod-description').value,
       imagen_url: orderedImageEntries[0] || '',
       imagenes: orderedImageEntries

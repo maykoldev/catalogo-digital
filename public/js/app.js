@@ -130,6 +130,12 @@ function normalizeProduct(p) {
     precio: Number(p.precio) || 0,
     precio_mayor: hasWholesale ? Number(p.precio_mayor) : null,
     inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 10,
+    mostrar_stock: Boolean(
+      p.mostrar_stock === true ||
+      p.mostrar_stock === 1 ||
+      p.mostrar_stock === '1' ||
+      p.mostrar_stock === 'true'
+    ),
     categoria: p.categoria || 'General',
     imagen_url: finalImages[0],
     imagenes: finalImages
@@ -393,15 +399,22 @@ function renderProducts(products) {
   }
 
   productsGrid.innerHTML = products.map(p => {
-    let stockBadgeClass = 'badge-stock-in';
-    let stockText = `${p.inventario} disponibles`;
+    let stockOverlayHtml = '';
 
     if (p.inventario === 0) {
-      stockBadgeClass = 'badge-stock-out';
-      stockText = 'Agotado';
-    } else if (p.inventario <= 5) {
-      stockBadgeClass = 'badge-stock-low';
-      stockText = `¡Últimas ${p.inventario} unid.!`;
+      stockOverlayHtml = `
+        <div class="product-stock-overlay">
+          <span class="badge badge-stock-out">Agotado</span>
+        </div>
+      `;
+    } else if (p.mostrar_stock) {
+      const stockBadgeClass = p.inventario <= 5 ? 'badge-stock-low' : 'badge-stock-in';
+      const stockText = p.inventario <= 5 ? `¡Últimas ${p.inventario} unid.!` : `${p.inventario} disponibles`;
+      stockOverlayHtml = `
+        <div class="product-stock-overlay">
+          <span class="badge ${stockBadgeClass}">${stockText}</span>
+        </div>
+      `;
     }
 
     return `
@@ -426,9 +439,7 @@ function renderProducts(products) {
                 </div>`
               : ''
           }
-          <div class="product-stock-overlay">
-            <span class="badge ${stockBadgeClass}">${stockText}</span>
-          </div>
+          ${stockOverlayHtml}
         </div>
 
         <div class="product-card-body">
@@ -479,14 +490,19 @@ function openProductDetail(id) {
   const modalBody = document.getElementById('product-modal-body');
 
   let stockBadgeClass = 'badge-stock-in';
-  let stockText = `${product.inventario} unidades disponibles en inventario`;
+  let stockText = 'Disponible';
 
   if (product.inventario === 0) {
     stockBadgeClass = 'badge-stock-out';
     stockText = 'Producto actualmente agotado';
-  } else if (product.inventario <= 5) {
-    stockBadgeClass = 'badge-stock-low';
-    stockText = `¡Stock bajo! Solo quedan ${product.inventario} unidades`;
+  } else if (product.mostrar_stock) {
+    if (product.inventario <= 5) {
+      stockBadgeClass = 'badge-stock-low';
+      stockText = `¡Stock bajo! Solo quedan ${product.inventario} unidades`;
+    } else {
+      stockBadgeClass = 'badge-stock-in';
+      stockText = `${product.inventario} unidades disponibles en inventario`;
+    }
   }
 
   activeModalImages =
@@ -710,7 +726,10 @@ function addToCart(productId) {
   const existing = state.cart.find(item => item.id === productId);
   if (existing) {
     if (existing.qty >= product.inventario) {
-      showToast(`Stock máximo alcanzado (${product.inventario} unidades).`, 'error');
+      const limitMsg = product.mostrar_stock
+        ? `Stock máximo alcanzado (${product.inventario} unidades).`
+        : 'Cantidad máxima disponible alcanzada.';
+      showToast(limitMsg, 'error');
       return;
     }
     existing.qty += 1;
