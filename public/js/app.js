@@ -429,8 +429,13 @@ function renderProducts(products) {
             loading="lazy"
             onerror="this.onerror=null; this.src='https://placehold.co/400x400/e2e8f0/475569?text=Sin+Imagen';"
           />
-          <div class="product-category-overlay">
+          <div class="product-category-overlay" style="display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; right: 0.75rem;">
             <span class="badge badge-category">${p.categoria}</span>
+            ${
+              p.codigo
+                ? `<span class="badge badge-code" style="background: rgba(15, 23, 42, 0.84); color: #ffffff; font-family: monospace; font-weight: 800; backdrop-filter: blur(4px);">${p.codigo}</span>`
+                : ''
+            }
           </div>
           ${
             p.imagenes && p.imagenes.length > 1
@@ -578,6 +583,11 @@ function openProductDetail(id) {
       <div>
         <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
           <span class="badge badge-category">${product.categoria}</span>
+          ${
+            product.codigo
+              ? `<span class="badge" style="background: #0f172a; color: #ffffff; font-family: monospace; font-weight: 800;">${product.codigo}</span>`
+              : ''
+          }
           <span class="badge ${stockBadgeClass}">${stockText}</span>
         </div>
         <h2 style="font-size: 1.5rem; font-weight: 800; line-height: 1.25; margin-bottom: 0.75rem;">${product.nombre}</h2>
