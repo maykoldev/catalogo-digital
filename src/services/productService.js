@@ -76,6 +76,7 @@ class ProductService {
     const { imagen_url, imagenes } = this.normalizeImagesInput(row.imagenes_json, row.imagen_url);
     const copy = {
       ...row,
+      codigo: row.codigo ? String(row.codigo).trim() : '',
       mostrar_stock: Boolean(row.mostrar_stock),
       imagen_url,
       imagenes
@@ -108,9 +109,9 @@ class ProductService {
     }
 
     if (search && search.trim() !== '') {
-      query += ' AND (p.nombre LIKE ? OR p.descripcion LIKE ?)';
+      query += ' AND (p.codigo LIKE ? OR p.nombre LIKE ? OR p.descripcion LIKE ?)';
       const term = `%${search.trim()}%`;
-      params.push(term, term);
+      params.push(term, term, term);
     }
 
     if (categoria && categoria !== 'all' && categoria !== '') {
@@ -158,7 +159,7 @@ class ProductService {
   /**
    * Crea un producto asociado a un cliente específico
    */
-  static create({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
+  static create({ cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     if (!cliente_id) {
       throw new Error('Debe especificar el cliente o empresa al que pertenece el producto.');
     }
@@ -188,14 +189,16 @@ class ProductService {
 
     const parsedMostrarStock = this.parseMostrarStock(mostrar_stock, false) ? 1 : 0;
     const normalizedImg = this.normalizeImagesInput(imagenes, imagen_url);
+    const cleanCodigo = codigo !== undefined && codigo !== null ? String(codigo).trim() : '';
 
     const stmt = db.prepare(`
-      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO productos (cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
       Number(cliente_id),
+      cleanCodigo,
       nombre.trim(),
       (descripcion || '').trim(),
       Number(precio),
@@ -229,8 +232,8 @@ class ProductService {
     }
 
     const stmt = db.prepare(`
-      INSERT INTO productos (cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO productos (cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((items) => {
@@ -238,6 +241,7 @@ class ProductService {
       for (const raw of items) {
         const nombre = String(raw.nombre || '').trim();
         if (!nombre) continue;
+        const codigo = raw.codigo !== undefined && raw.codigo !== null ? String(raw.codigo).trim() : '';
         const rawPrice = Number(raw.precio);
         const precio = !isNaN(rawPrice) && rawPrice >= 0 ? Number(rawPrice.toFixed(2)) : 0;
         const rawMayor = raw.precio_mayor !== undefined && raw.precio_mayor !== null && raw.precio_mayor !== ''
@@ -255,6 +259,7 @@ class ProductService {
 
         const res = stmt.run(
           parsedClienteId,
+          codigo,
           nombre,
           descripcion,
           precio,
@@ -285,13 +290,14 @@ class ProductService {
   /**
    * Actualiza los datos de un producto
    */
-  static update(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
+  static update(id, { cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
     }
 
     const newClienteId = cliente_id ? Number(cliente_id) : existing.cliente_id;
+    const newCodigo = codigo !== undefined ? String(codigo ?? '').trim() : (existing.codigo || '');
     const newNombre = nombre !== undefined ? nombre.trim() : existing.nombre;
     const newDesc = descripcion !== undefined ? descripcion.trim() : existing.descripcion;
     const newPrecio = precio !== undefined ? Number(precio) : existing.precio;
@@ -322,12 +328,13 @@ class ProductService {
 
     const stmt = db.prepare(`
       UPDATE productos
-      SET cliente_id = ?, nombre = ?, descripcion = ?, precio = ?, precio_mayor = ?, inventario = ?, mostrar_stock = ?, categoria = ?, imagen_url = ?, imagenes_json = ?, updated_at = (datetime('now', 'localtime'))
+      SET cliente_id = ?, codigo = ?, nombre = ?, descripcion = ?, precio = ?, precio_mayor = ?, inventario = ?, mostrar_stock = ?, categoria = ?, imagen_url = ?, imagenes_json = ?, updated_at = (datetime('now', 'localtime'))
       WHERE id = ?
     `);
 
     stmt.run(
       newClienteId,
+      newCodigo,
       newNombre,
       newDesc,
       newPrecio,

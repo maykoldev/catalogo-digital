@@ -125,6 +125,7 @@ function normalizeProduct(p) {
   return {
     id: p.id,
     cliente_id: p.cliente_id,
+    codigo: p.codigo ? String(p.codigo).trim() : '',
     nombre: p.nombre || 'Producto',
     descripcion: p.descripcion || 'Producto disponible en catálogo.',
     precio: Number(p.precio) || 0,
@@ -226,6 +227,7 @@ function applyFiltersAndRender() {
   if (state.searchQuery) {
     const q = state.searchQuery.toLowerCase();
     filtered = filtered.filter(p =>
+      (p.codigo && p.codigo.toLowerCase().includes(q)) ||
       p.nombre.toLowerCase().includes(q) ||
       p.descripcion.toLowerCase().includes(q) ||
       p.categoria.toLowerCase().includes(q)
@@ -736,6 +738,7 @@ function addToCart(productId) {
   } else {
     state.cart.push({
       id: product.id,
+      codigo: product.codigo || '',
       nombre: product.nombre,
       precio: product.precio,
       precio_mayor: product.precio_mayor,
@@ -752,137 +755,27 @@ function addToCart(productId) {
 }
 
 /**
- * Convierte una medida (fracción mixta "1 1/2", fracción "5/8" o decimal "1.5") en un valor numérico limpio
+ * Determina la clave de agrupación para precio al por mayor (docena / media docena) en el carrito.
+ * Si el artículo tiene un código asignado (ej. "PERF-58"), agrupa directamente todos los artículos
+ * que compartan ese mismo código. Si no tiene código, agrupa por categoría y precios iguales.
  */
-function parseMeasureValue(rawStr) {
-  const s = String(rawStr || '').trim().replace(',', '.');
-  const mixedMatch = s.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
-  if (mixedMatch) {
-    const whole = Number(mixedMatch[1]);
-    const num = Number(mixedMatch[2]);
-    const den = Number(mixedMatch[3]);
-    return den > 0 ? Number((whole + num / den).toFixed(4)) : whole;
+function resolveCartWholesaleGroupKey({ codigo, categoria, basePrice, dozenPrice }) {
+  const cleanCode = String(codigo || '').trim().toLowerCase();
+  if (cleanCode) {
+    return `code::${cleanCode}`;
   }
-  const fracMatch = s.match(/^(\d+)\s*\/\s*(\d+)$/);
-  if (fracMatch) {
-    const num = Number(fracMatch[1]);
-    const den = Number(fracMatch[2]);
-    return den > 0 ? Number((num / den).toFixed(4)) : num;
-  }
-  const numVal = Number(s);
-  return !isNaN(numVal) ? Number(numVal.toFixed(4)) : s;
-}
-
-/**
- * Extrae la familia del artículo y su medida/tamaño (ej. 5/8, 3/8, 1/2, 1", 2 pulg, 25mm, 20W)
- * para agrupar en el carrito todas las figuras/variantes de la misma medida y precio (ej. "Reno 5/8",
- * "Medialuna 5/8", "Abeja 5/8") aunque el nombre solo indique la figura sin la palabra "Perforador".
- */
-function extractProductTypeAndSize(nombre, categoria) {
-  const clean = String(nombre || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-
   const catClean = String(categoria || 'general')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
-
-  // Normalizar fracciones escritas en palabras ("5 octavos", "cinco octavos", "3 cuartos", "1 y medio") y con barra ("5 / 8")
-  const wordToNum = {
-    un: '1',
-    uno: '1',
-    una: '1',
-    dos: '2',
-    tres: '3',
-    cuatro: '4',
-    cinco: '5',
-    seis: '6',
-    siete: '7',
-    ocho: '8',
-    nueve: '9',
-    diez: '10'
-  };
-
-  const withNumbers = clean
-    .replace(
-      /\b(un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?=octavos?\b|cuartos?\b|medios?\b|tercios?\b|dieciseisavos?\b|pulgadas?\b|pulg\b|cm\b|mm\b|y\s+medi[oa]\b)/g,
-      (_, w) => `${wordToNum[w] || w} `
-    )
-    .replace(/(\d+)\s+y\s+medi[oa]\b/g, '$1 1/2')
-    .replace(/\b(\d+)\s*(?:de\s+)?octavos?\b/g, '$1/8')
-    .replace(/\b(\d+)\s*(?:de\s+)?cuartos?\b/g, '$1/4')
-    .replace(/\b(\d+)\s*(?:de\s+)?medios?\b/g, '$1/2')
-    .replace(/\b(\d+)\s*(?:de\s+)?tercios?\b/g, '$1/3')
-    .replace(/\b(\d+)\s*(?:de\s+)?dieciseisavos?\b/g, '$1/16')
-    .replace(/(\d+)\s*\/\s*(\d+)/g, '$1/$2')
-    .replace(/\bmedia\s+(pulgadas?|pulg\b)/g, '0.5 $1');
-
-  let sizeToken = 'std';
-
-  // 1. Medida explícita en pulgadas (ej. '5/8"', '1 1/2 pulg', '2 pulgadas')
-  const inchMatch = withNumbers.match(/(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:[.,]\d+)?)\s*(?:pulgadas?|pulg\.?|in\b|"|'')/);
-  // 2. Medida con otra unidad explícita (cm, mm, m, w, g, ml, oz, l)
-  const unitMatch = !inchMatch
-    ? withNumbers.match(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m|w|g|ml|oz|l)\b/)
-    : null;
-  // 3. Fracción de medida sin símbolo de pulgadas (ej. "Reno 5/8", "Medialuna 5/8", "Abeja 5/8", "Estrella 1 1/2")
-  const fractionMatch = !inchMatch && !unitMatch
-    ? withNumbers.match(/\b(\d+\s+\d+\/\d+|\d+\/\d+)\b/)
-    : null;
-  // 4. Número de medida suelto al final del nombre (ej. "Reno 1", "Mariposa 1.5", "Estrella 2")
-  const trailingNumberMatch = !inchMatch && !unitMatch && !fractionMatch
-    ? withNumbers.match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*$/)
-    : null;
-
-  if (inchMatch) {
-    sizeToken = `${parseMeasureValue(inchMatch[1])}_pulg`;
-  } else if (unitMatch) {
-    sizeToken = `${parseMeasureValue(unitMatch[1])}_${unitMatch[2]}`;
-  } else if (fractionMatch) {
-    sizeToken = `${parseMeasureValue(fractionMatch[1])}_pulg`;
-  } else if (trailingNumberMatch) {
-    sizeToken = `${parseMeasureValue(trailingNumberMatch[1])}_pulg`;
-  }
-
-  // Solo separar por familia de herramienta si el nombre menciona explícitamente una familia distinta
-  // (para que nombres de figuras como "Reno 5/8", "Medialuna 5/8", "Abeja 5/8" o "Perforador Reno 5/8"
-  // siempre compartan el mismo grupo dentro de su categoría, medida y precio).
-  const distinctFamilies = [
-    { key: 'tijera', regex: /\btijeras?\b/ },
-    { key: 'pistola', regex: /\bpistolas?\b/ },
-    { key: 'silicon', regex: /\b(?:silicon|silicona)\b/ },
-    { key: 'regla', regex: /\breglas?\b/ },
-    { key: 'cinta', regex: /\bcintas?\b/ },
-    { key: 'pegamento', regex: /\b(?:pegamento|pega|cola)\b/ },
-    { key: 'cuaderno', regex: /\b(?:cuadernos?|libretas?)\b/ },
-    { key: 'cartuchera', regex: /\bcartucheras?\b/ },
-    { key: 'mochila', regex: /\bmochilas?\b/ }
-  ];
-
-  let baseType = 'variante';
-  if (catClean === 'general') {
-    for (const fam of distinctFamilies) {
-      if (fam.regex.test(withNumbers)) {
-        baseType = fam.key;
-        break;
-      }
-    }
-  }
-
-  return {
-    baseType,
-    sizeToken,
-    catClean
-  };
+  return `cat::${catClean}::${basePrice.toFixed(2)}::${dozenPrice.toFixed(2)}`;
 }
 
 /**
- * Calcula los precios de todos los ítems del carrito agrupando variantes del mismo tipo, medida y precio
- * para que a partir de 6 unidades (media docena) de ese mismo grupo aplique el precio al por mayor (docena).
+ * Calcula los precios de todos los ítems del carrito agrupando variantes que comparten el mismo código
+ * (o misma categoría y precio si no tienen código) para que a partir de 6 unidades (media docena)
+ * aplique el precio al por mayor (docena).
  */
 function computeCartPricingMap() {
   const groupTotals = new Map();
@@ -890,7 +783,7 @@ function computeCartPricingMap() {
 
   state.cart.forEach(item => {
     const liveProd = state.allProducts.find(p => p.id === item.id);
-    const nombre = liveProd ? liveProd.nombre : item.nombre;
+    const codigo = (liveProd && liveProd.codigo !== undefined) ? liveProd.codigo : (item.codigo || '');
     const categoria = liveProd ? liveProd.categoria : item.categoria;
     const basePrice = liveProd ? Number(liveProd.precio) : Number(item.precio) || 0;
     const rawWholesale =
@@ -910,10 +803,9 @@ function computeCartPricingMap() {
       return;
     }
 
-    const { baseType, sizeToken, catClean } = extractProductTypeAndSize(nombre, categoria);
-    const groupKey = `${catClean}::${baseType}::${sizeToken}::${basePrice.toFixed(2)}::${dozenPrice.toFixed(2)}`;
+    const groupKey = resolveCartWholesaleGroupKey({ codigo, categoria, basePrice, dozenPrice });
 
-    const curr = groupTotals.get(groupKey) || { totalQty: 0, itemCount: 0, baseType, sizeToken };
+    const curr = groupTotals.get(groupKey) || { totalQty: 0, itemCount: 0 };
     curr.totalQty += qty;
     curr.itemCount += 1;
     groupTotals.set(groupKey, curr);

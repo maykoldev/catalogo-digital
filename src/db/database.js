@@ -184,6 +184,13 @@ if (!productCols.some(c => c.name === 'mostrar_stock')) {
     console.log('Nota de migración mostrar_stock:', e.message);
   }
 }
+if (!productCols.some(c => c.name === 'codigo')) {
+  try {
+    db.exec("ALTER TABLE productos ADD COLUMN codigo TEXT DEFAULT '';");
+  } catch (e) {
+    console.log('Nota de migración codigo:', e.message);
+  }
+}
 
 // Índices para optimización de consultas multi-inquilino
 db.exec(`

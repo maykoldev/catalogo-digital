@@ -1285,7 +1285,14 @@ function renderAdminTable(products) {
           </div>
         </td>
         <td>
-          <div style="font-weight: 700; color: var(--text-main);">${escapeHtml(p.nombre)}</div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            ${
+              p.codigo
+                ? `<span class="badge" style="background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; font-family: monospace; font-weight: 800; font-size: 0.7rem;" title="Código de producto / grupo">${escapeHtml(p.codigo)}</span>`
+                : ''
+            }
+            <div style="font-weight: 700; color: var(--text-main);">${escapeHtml(p.nombre)}</div>
+          </div>
           <div style="font-size: 0.75rem; color: var(--text-muted); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             ${escapeHtml(p.descripcion)}
           </div>
@@ -1579,6 +1586,8 @@ function openProductForm(mode, product = null) {
     modalTitle.textContent = `Editar Producto #${product.id}`;
     document.getElementById('prod-id').value = product.id;
     prodClientSelect.value = product.cliente_id;
+    const codeInputEl = document.getElementById('prod-code');
+    if (codeInputEl) codeInputEl.value = product.codigo || '';
     document.getElementById('prod-name').value = product.nombre;
     document.getElementById('prod-category').value = product.categoria;
     document.getElementById('prod-price').value = product.precio;
@@ -1618,6 +1627,8 @@ function openProductForm(mode, product = null) {
     if (bulkBanner) bulkBanner.style.display = 'flex';
     modalTitle.textContent = 'Registrar Nuevo Producto';
     document.getElementById('prod-id').value = '';
+    const codeInputEl = document.getElementById('prod-code');
+    if (codeInputEl) codeInputEl.value = '';
     const wholesaleEl = document.getElementById('prod-wholesale-price');
     if (wholesaleEl) wholesaleEl.value = '';
     const showStockEl = document.getElementById('prod-show-stock');
@@ -1689,9 +1700,12 @@ async function handleProductFormSubmit(e) {
       : null;
   const mostrarStock = Boolean(document.getElementById('prod-show-stock')?.checked);
 
+  const prodCodeVal = document.getElementById('prod-code')?.value?.trim() || '';
+
   if (filesToUpload.length > 0) {
     formData = new FormData();
     formData.append('cliente_id', document.getElementById('prod-client-id').value);
+    formData.append('codigo', prodCodeVal);
     formData.append('nombre', document.getElementById('prod-name').value);
     formData.append('categoria', document.getElementById('prod-category').value);
     formData.append('precio', document.getElementById('prod-price').value);
@@ -1707,6 +1721,7 @@ async function handleProductFormSubmit(e) {
     headers['Content-Type'] = 'application/json';
     formData = JSON.stringify({
       cliente_id: parseInt(document.getElementById('prod-client-id').value, 10),
+      codigo: prodCodeVal,
       nombre: document.getElementById('prod-name').value,
       categoria: document.getElementById('prod-category').value,
       precio: parseFloat(document.getElementById('prod-price').value),
@@ -2682,6 +2697,7 @@ function setupBulkUploadListeners() {
   if (btnAddRow) {
     btnAddRow.addEventListener('click', () => {
       adminState.bulk.rows.push({
+        codigo: '',
         nombre: '',
         categoria: 'General',
         precio: 0,
@@ -2854,6 +2870,7 @@ async function loadFolderImagesAsBulkRows() {
         .replace(/[_-]+/g, ' ')
         .trim();
       return {
+        codigo: '',
         nombre: cleanName || `Producto ${idx + 1}`,
         categoria: 'General',
         precio: 0,
@@ -2917,6 +2934,16 @@ function renderBulkPreviewTable() {
                 🗂️
               </button>
             </div>
+          </td>
+          <td>
+            <input
+              type="text"
+              class="form-control"
+              style="padding: 0.3rem 0.5rem; font-size: 0.8125rem; font-family: monospace;"
+              value="${escapeHtml(r.codigo || '')}"
+              placeholder="Ej: PERF-58"
+              oninput="updateBulkRowField(${idx}, 'codigo', this.value)"
+            />
           </td>
           <td>
             <input

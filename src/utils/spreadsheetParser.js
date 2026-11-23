@@ -355,6 +355,7 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
 
   const headerRow = matrix[0];
   const columnMap = {
+    codigo: -1,
     nombre: -1,
     categoria: -1,
     precio: -1,
@@ -369,6 +370,11 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
     if (!key) return;
 
     if (
+      columnMap.codigo === -1 &&
+      ['codigo', 'cod', 'sku', 'referencia', 'ref', 'code', 'codigoproducto', 'codigodeproducto', 'grupo', 'codigogrupo'].includes(key)
+    ) {
+      columnMap.codigo = idx;
+    } else if (
       columnMap.nombre === -1 &&
       ['nombre', 'producto', 'nombreproducto', 'nombredelproducto', 'articulo', 'item', 'titulo', 'name', 'title'].includes(key)
     ) {
@@ -416,21 +422,37 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
   });
 
   // Si la primera fila no tenía encabezados reconocibles, asumir orden estándar de la plantilla:
-  // [nombre, categoria, precio, precio_mayor, inventario, descripcion, imagen_url]
+  // [codigo, nombre, categoria, precio, precio_mayor, inventario, descripcion, imagen_url] (8 columnas)
+  // o respaldo legado de 7 columnas [nombre, categoria, precio, precio_mayor, inventario, descripcion, imagen_url]
   let startRowIndex = 1;
   if (columnMap.nombre === -1 && columnMap.precio === -1) {
-    columnMap.nombre = 0;
-    columnMap.categoria = 1;
-    columnMap.precio = 2;
-    columnMap.precio_mayor = 3;
-    columnMap.inventario = 4;
-    columnMap.descripcion = 5;
-    columnMap.imagen_url = 6;
+    if (headerRow.length >= 8) {
+      columnMap.codigo = 0;
+      columnMap.nombre = 1;
+      columnMap.categoria = 2;
+      columnMap.precio = 3;
+      columnMap.precio_mayor = 4;
+      columnMap.inventario = 5;
+      columnMap.descripcion = 6;
+      columnMap.imagen_url = 7;
 
-    // Verificar si la fila 0 parece ser un dato real (el campo precio es numérico)
-    const possiblePrice = parseNumericField(headerRow[2], null);
-    if (possiblePrice !== null) {
-      startRowIndex = 0;
+      const possiblePrice = parseNumericField(headerRow[3], null);
+      if (possiblePrice !== null) {
+        startRowIndex = 0;
+      }
+    } else {
+      columnMap.nombre = 0;
+      columnMap.categoria = 1;
+      columnMap.precio = 2;
+      columnMap.precio_mayor = 3;
+      columnMap.inventario = 4;
+      columnMap.descripcion = 5;
+      columnMap.imagen_url = 6;
+
+      const possiblePrice = parseNumericField(headerRow[2], null);
+      if (possiblePrice !== null) {
+        startRowIndex = 0;
+      }
     }
   }
 
@@ -451,13 +473,14 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
     const row = matrix[r];
     if (!Array.isArray(row) || row.every((c) => !String(c || '').trim())) continue;
 
-    const rawNombre = columnMap.nombre !== -1 ? String(row[columnMap.nombre] || '').trim() : '';
-    const rawCat = columnMap.categoria !== -1 ? String(row[columnMap.categoria] || '').trim() : '';
+    const rawCodigo = columnMap.codigo !== -1 ? String(row[columnMap.codigo] ?? '').trim() : '';
+    const rawNombre = columnMap.nombre !== -1 ? String(row[columnMap.nombre] ?? '').trim() : '';
+    const rawCat = columnMap.categoria !== -1 ? String(row[columnMap.categoria] ?? '').trim() : '';
     const rawPrecio = columnMap.precio !== -1 ? row[columnMap.precio] : '';
     const rawMayor = columnMap.precio_mayor !== -1 ? row[columnMap.precio_mayor] : '';
     const rawStock = columnMap.inventario !== -1 ? row[columnMap.inventario] : '';
-    const rawDesc = columnMap.descripcion !== -1 ? String(row[columnMap.descripcion] || '').trim() : '';
-    const rawImg = columnMap.imagen_url !== -1 ? String(row[columnMap.imagen_url] || '').trim() : '';
+    const rawDesc = columnMap.descripcion !== -1 ? String(row[columnMap.descripcion] ?? '').trim() : '';
+    const rawImg = columnMap.imagen_url !== -1 ? String(row[columnMap.imagen_url] ?? '').trim() : '';
 
     if (!rawNombre && (rawPrecio === '' || rawPrecio === undefined)) {
       continue;
@@ -495,6 +518,7 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
 
     parsedProducts.push({
       rowNumber: r + 1,
+      codigo: rawCodigo,
       nombre: rawNombre,
       categoria: rawCat || 'General',
       precio: precio !== null && precio >= 0 ? Number(precio.toFixed(2)) : 0,
@@ -604,23 +628,25 @@ function buildZipBuffer(files) {
  */
 function generateXlsxTemplateBuffer(sampleRows = null) {
   const rows = sampleRows || [
-    ['nombre', 'categoria', 'precio', 'precio_mayor', 'inventario', 'descripcion', 'imagen_url'],
+    ['codigo', 'nombre', 'categoria', 'precio', 'precio_mayor', 'inventario', 'descripcion', 'imagen_url'],
     [
-      'Pistola de Silicona Caliente 20W',
-      'Herramientas',
-      15.5,
-      12.0,
+      'PERF-58',
+      'Reno 5/8',
+      'Perforadores',
+      3.5,
+      36.0,
       25,
-      'Pistola térmica ergonómica para barras de 7mm',
+      'Perforador de figura 5/8 pulgadas (comparte código PERF-58 para agrupar docena)',
       ''
     ],
     [
-      'Set de Acrílicos Profesionales x12',
-      'Pinturas',
-      22.0,
-      18.5,
-      40,
-      'Colores intensos de secado rápido',
+      'PERF-58',
+      'Estrella 5/8',
+      'Perforadores',
+      3.5,
+      36.0,
+      25,
+      'Perforador de figura 5/8 pulgadas (comparte código PERF-58 para agrupar docena)',
       ''
     ]
   ];
@@ -685,23 +711,25 @@ function generateXlsxTemplateBuffer(sampleRows = null) {
  */
 function generateCsvTemplateString(sampleRows = null) {
   const rows = sampleRows || [
-    ['nombre', 'categoria', 'precio', 'precio_mayor', 'inventario', 'descripcion', 'imagen_url'],
+    ['codigo', 'nombre', 'categoria', 'precio', 'precio_mayor', 'inventario', 'descripcion', 'imagen_url'],
     [
-      'Pistola de Silicona Caliente 20W',
-      'Herramientas',
-      '15.50',
-      '12.00',
+      'PERF-58',
+      'Reno 5/8',
+      'Perforadores',
+      '3.50',
+      '36.00',
       '25',
-      'Pistola térmica ergonómica para barras de 7mm',
+      'Perforador de figura 5/8 pulgadas (comparte código PERF-58 para agrupar docena)',
       ''
     ],
     [
-      'Set de Acrílicos Profesionales x12',
-      'Pinturas',
-      '22.00',
-      '18.50',
-      '40',
-      'Colores intensos de secado rápido',
+      'PERF-58',
+      'Estrella 5/8',
+      'Perforadores',
+      '3.50',
+      '36.00',
+      '25',
+      'Perforador de figura 5/8 pulgadas (comparte código PERF-58 para agrupar docena)',
       ''
     ]
   ];

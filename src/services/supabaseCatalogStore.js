@@ -218,11 +218,14 @@ class SupabaseCatalogStore {
 
     const rawMostrarStock = p.mostrar_stock !== undefined ? p.mostrar_stock : extra.mostrar_stock;
     const mostrar_stock = this.parseMostrarStock(rawMostrarStock, false);
+    const rawCodigo = p.codigo !== undefined && p.codigo !== null ? p.codigo : extra.codigo;
+    const codigo = rawCodigo !== undefined && rawCodigo !== null ? String(rawCodigo).trim() : '';
 
     const normalizedImg = this.normalizeImagesInput(p.imagenes || extra.imagenes, p.imagen_url);
 
     return {
       ...p,
+      codigo,
       precio: Number(p.precio) || 0,
       precio_mayor: parsedMayor,
       inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 0,
@@ -749,6 +752,7 @@ class SupabaseCatalogStore {
       const q = search.trim().toLowerCase();
       list = list.filter(
         (p) =>
+          (p.codigo && p.codigo.toLowerCase().includes(q)) ||
           (p.nombre && p.nombre.toLowerCase().includes(q)) ||
           (p.descripcion && p.descripcion.toLowerCase().includes(q)) ||
           (p.categoria && p.categoria.toLowerCase().includes(q))
@@ -805,7 +809,7 @@ class SupabaseCatalogStore {
     return enriched;
   }
 
-  static async createProduct({ cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
+  static async createProduct({ cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     if (!cliente_id) {
       throw new Error('Debe seleccionar el cliente o tienda al que pertenece el producto.');
     }
@@ -828,6 +832,7 @@ class SupabaseCatalogStore {
 
     const parsedMostrarStock = this.parseMostrarStock(mostrar_stock, false);
     const normalizedImg = this.normalizeImagesInput(imagenes, imagen_url);
+    const cleanCodigo = codigo !== undefined && codigo !== null ? String(codigo).trim() : '';
 
     const { data: inserted, error } = await supabaseAdmin
       .from('productos')
@@ -854,6 +859,7 @@ class SupabaseCatalogStore {
     const cleanCat = categoria && categoria.trim() ? categoria.trim() : 'General';
     const meta = await this._loadMeta(true);
     meta.products[String(inserted.id)] = {
+      codigo: cleanCodigo,
       categoria: cleanCat,
       precio_mayor: parsedMayor,
       mostrar_stock: parsedMostrarStock,
@@ -888,6 +894,7 @@ class SupabaseCatalogStore {
       const nombre = String(raw.nombre || '').trim();
       if (!nombre) continue;
 
+      const codigo = raw.codigo !== undefined && raw.codigo !== null ? String(raw.codigo).trim() : '';
       const rawPrice = Number(raw.precio);
       const precio = !isNaN(rawPrice) && rawPrice >= 0 ? Number(rawPrice.toFixed(2)) : 0;
 
@@ -908,6 +915,7 @@ class SupabaseCatalogStore {
 
       normalizedItems.push({
         cliente_id: parsedClienteId,
+        codigo,
         nombre,
         descripcion,
         precio,
@@ -946,6 +954,7 @@ class SupabaseCatalogStore {
     (insertedRows || []).forEach((row, idx) => {
       const sourceItem = normalizedItems[idx] || {};
       meta.products[String(row.id)] = {
+        codigo: sourceItem.codigo || '',
         categoria: sourceItem.categoria || 'General',
         precio_mayor: sourceItem.precio_mayor,
         mostrar_stock: Boolean(sourceItem.mostrar_stock),
@@ -964,7 +973,7 @@ class SupabaseCatalogStore {
     };
   }
 
-  static async updateProduct(id, { cliente_id, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
+  static async updateProduct(id, { cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     const existing = await this.getProductById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
@@ -1002,6 +1011,12 @@ class SupabaseCatalogStore {
 
     const meta = await this._loadMeta(true);
     const prevProdMeta = meta.products[String(id)] || {};
+    const nextCodigo =
+      codigo !== undefined
+        ? String(codigo ?? '').trim()
+        : prevProdMeta.codigo !== undefined
+          ? String(prevProdMeta.codigo ?? '').trim()
+          : existing.codigo || '';
     const nextCat =
       categoria !== undefined && categoria.trim() !== ''
         ? categoria.trim()
@@ -1022,6 +1037,7 @@ class SupabaseCatalogStore {
 
     meta.products[String(id)] = {
       ...prevProdMeta,
+      codigo: nextCodigo,
       categoria: nextCat,
       precio_mayor: nextMayor,
       mostrar_stock: nextMostrarStock,

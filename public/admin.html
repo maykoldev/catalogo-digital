@@ -318,7 +318,7 @@
               type="text" 
               id="search-admin" 
               class="form-control" 
-              placeholder="Buscar por nombre..." 
+              placeholder="Buscar por código o nombre..." 
               style="width: 220px; padding: 0.4375rem 0.75rem; font-size: 0.875rem;"
             />
 
@@ -635,9 +635,19 @@
             </select>
           </div>
 
-          <div class="form-group">
-            <label for="prod-name" class="form-label">Nombre del Producto *</label>
-            <input type="text" id="prod-name" class="form-control" required placeholder="Ej: Pistola de Silicona 20W" />
+          <div class="form-row">
+            <div class="form-group" style="flex: 0 0 38%;">
+              <label for="prod-code" class="form-label">Código / Grupo (Opcional)</label>
+              <input type="text" id="prod-code" class="form-control" placeholder="Ej: PERF-58" />
+              <small style="color: var(--text-subtle); font-size: 0.7rem; display: block; margin-top: 2px;">
+                Artículos con el mismo código se agrupan por docena en el carrito
+              </small>
+            </div>
+
+            <div class="form-group" style="flex: 1;">
+              <label for="prod-name" class="form-label">Nombre del Producto *</label>
+              <input type="text" id="prod-name" class="form-control" required placeholder="Ej: Reno 5/8" />
+            </div>
           </div>
 
           <div class="form-row">
@@ -775,7 +785,7 @@
                 2. Descarga una Plantilla o Sube tu Archivo (.xlsx / .csv)
               </div>
               <div style="font-size: 0.75rem; color: var(--text-muted);">
-                Columnas soportadas: <code>nombre</code>, <code>categoria</code>, <code>precio</code>, <code>precio_mayor</code>, <code>inventario</code>, <code>descripcion</code>, <code>imagen_url</code>
+                Columnas soportadas: <code>codigo</code>, <code>nombre</code>, <code>categoria</code>, <code>precio</code>, <code>precio_mayor</code>, <code>inventario</code>, <code>descripcion</code>, <code>imagen_url</code>
               </div>
             </div>
 
@@ -826,6 +836,7 @@
                 <tr>
                   <th style="width: 36px;">#</th>
                   <th style="width: 92px;">Imagen</th>
+                  <th style="width: 115px;">Código</th>
                   <th style="min-width: 170px;">Nombre del Producto *</th>
                   <th style="width: 125px;">Categoría</th>
                   <th style="width: 105px;">Precio Detal *</th>
@@ -986,6 +997,6 @@
 
   <!-- Scripts -->
   <script src="/js/env-config.js"></script>
-  <script src="/js/admin.js?v=bulk3"></script>
+  <script src="/js/admin.js?v=code1"></script>
 </body>
 </html>
