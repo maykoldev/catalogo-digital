@@ -546,6 +546,48 @@ router.patch('/products/:id/stock', authMiddleware, async (req, res) => {
 });
 
 /**
+ * POST /api/products/bulk-delete (y DELETE /api/products/bulk)
+ * Eliminación masiva de múltiples productos seleccionados desde el panel de administración
+ */
+const handleBulkDeleteProducts = async (req, res) => {
+  try {
+    let rawIds = (req.body && req.body.ids) || req.query.ids || [];
+    if (typeof rawIds === 'string') {
+      const trimmed = rawIds.trim();
+      if (trimmed.startsWith('[')) {
+        try {
+          rawIds = JSON.parse(trimmed);
+        } catch (_) {
+          rawIds = trimmed.split(',');
+        }
+      } else {
+        rawIds = trimmed.split(',');
+      }
+    }
+
+    const result = SupabaseCatalogStore.isAvailable
+      ? await SupabaseCatalogStore.deleteProductsBulk(rawIds)
+      : ProductService.deleteBulk(rawIds);
+
+    return res.json({
+      success: true,
+      message:
+        result.deletedCount === 1
+          ? '1 artículo eliminado del catálogo.'
+          : `${result.deletedCount} artículos eliminados del catálogo.`,
+      count: result.deletedCount,
+      deletedIds: result.deletedIds
+    });
+  } catch (error) {
+    console.error('Error en eliminación masiva de productos:', error);
+    return res.status(400).json({ success: false, error: error.message });
+  }
+};
+
+router.post('/products/bulk-delete', authMiddleware, handleBulkDeleteProducts);
+router.delete('/products/bulk', authMiddleware, handleBulkDeleteProducts);
+
+/**
  * DELETE /api/products/:id
  * Eliminación de producto
  */

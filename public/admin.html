@@ -303,6 +303,17 @@
           </div>
 
           <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+            <button
+              type="button"
+              id="btn-delete-selected-header"
+              class="btn btn-danger btn-sm"
+              style="display: none; font-weight: 700;"
+              title="Eliminar todos los artículos marcados"
+            >
+              <span>🗑️</span>
+              <span id="btn-delete-selected-header-text">Eliminar seleccionados (0)</span>
+            </button>
+
             <input 
               type="text" 
               id="search-admin" 
@@ -324,10 +335,39 @@
           </div>
         </div>
 
+        <!-- Barra de acciones en lote cuando hay productos seleccionados -->
+        <div
+          id="bulk-selection-bar"
+          style="display: none; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; padding: 0.75rem 1.25rem; background: #fef2f2; border-bottom: 1px solid #fecaca;"
+        >
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <span style="font-weight: 800; color: #991b1b; font-size: 0.875rem;" id="bulk-selection-count-label">
+              0 artículos seleccionados
+            </span>
+            <button type="button" id="btn-select-all-visible" class="btn btn-secondary btn-sm" style="font-size: 0.78rem; padding: 0.25rem 0.65rem;">
+              Seleccionar todos los visibles
+            </button>
+            <button type="button" id="btn-clear-selection" class="btn btn-secondary btn-sm" style="font-size: 0.78rem; padding: 0.25rem 0.65rem;">
+              Deseleccionar todos
+            </button>
+          </div>
+          <button type="button" id="btn-bulk-delete-selected" class="btn btn-danger btn-sm" style="font-weight: 700;">
+            🗑️ Eliminar artículos seleccionados
+          </button>
+        </div>
+
         <div class="table-responsive">
           <table class="admin-table">
             <thead>
               <tr>
+                <th style="width: 44px; text-align: center;">
+                  <input
+                    type="checkbox"
+                    id="select-all-products-checkbox"
+                    title="Seleccionar o deseleccionar todos los productos visibles"
+                    style="width: 17px; height: 17px; accent-color: var(--primary); cursor: pointer;"
+                  />
+                </th>
                 <th style="width: 50px;">ID</th>
                 <th style="width: 60px;">Imagen</th>
                 <th>Producto y Descripción</th>
@@ -946,6 +986,6 @@
 
   <!-- Scripts -->
   <script src="/js/env-config.js"></script>
-  <script src="/js/admin.js?v=bulk2"></script>
+  <script src="/js/admin.js?v=bulk3"></script>
 </body>
 </html>

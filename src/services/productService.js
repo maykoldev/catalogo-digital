@@ -384,6 +384,33 @@ class ProductService {
   }
 
   /**
+   * Elimina múltiples productos en lote por sus IDs (respaldo SQLite)
+   */
+  static deleteBulk(ids = []) {
+    const cleanIds = Array.from(
+      new Set(
+        (Array.isArray(ids) ? ids : [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )
+    );
+
+    if (cleanIds.length === 0) {
+      throw new Error('Debe seleccionar al menos un artículo válido para eliminar.');
+    }
+
+    const placeholders = cleanIds.map(() => '?').join(', ');
+    const stmt = db.prepare(`DELETE FROM productos WHERE id IN (${placeholders})`);
+    const result = stmt.run(...cleanIds);
+
+    return {
+      success: true,
+      deletedCount: result.changes || cleanIds.length,
+      deletedIds: cleanIds
+    };
+  }
+
+  /**
    * Obtiene la lista de categorías (opcionalmente filtrada por cliente)
    */
   static getCategories(clienteId = null) {

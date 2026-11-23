@@ -1078,6 +1078,53 @@ class SupabaseCatalogStore {
     return { success: true, deleted: existing };
   }
 
+  /**
+   * Elimina múltiples productos en lote por sus IDs en Supabase
+   */
+  static async deleteProductsBulk(ids = []) {
+    const cleanIds = Array.from(
+      new Set(
+        (Array.isArray(ids) ? ids : [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )
+    );
+
+    if (cleanIds.length === 0) {
+      throw new Error('Debe seleccionar al menos un artículo válido para eliminar.');
+    }
+
+    const { data: deletedRows, error } = await supabaseAdmin
+      .from('productos')
+      .delete()
+      .in('id', cleanIds)
+      .select('id, nombre, cliente_id');
+
+    if (error) {
+      throw new Error(error.message || 'Error al eliminar los productos seleccionados en Supabase.');
+    }
+
+    const meta = await this._loadMeta(true);
+    let metaChanged = false;
+    for (const id of cleanIds) {
+      if (meta.products[String(id)]) {
+        delete meta.products[String(id)];
+        metaChanged = true;
+      }
+    }
+    if (metaChanged) {
+      await this._saveMeta(meta);
+    }
+
+    const deletedCount = Array.isArray(deletedRows) && deletedRows.length > 0 ? deletedRows.length : cleanIds.length;
+    return {
+      success: true,
+      deletedCount,
+      deletedIds: cleanIds,
+      deleted: deletedRows || []
+    };
+  }
+
   static async getCategories(clienteId = null) {
     const products = await this.getAllProducts({ cliente_id: clienteId });
     const counts = new Map();

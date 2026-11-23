@@ -26,7 +26,8 @@ const adminState = {
   },
   activeEditingProductId: null,
   activeEditingClientId: null,
-  deleteTarget: null, // { type: 'product'|'client', id: ... }
+  deleteTarget: null, // { type: 'product'|'client'|'products-bulk', id: ..., ids: [...] }
+  selectedProductIds: new Set(),
   galleryTarget: 'product', // 'product' | 'client-logo' | 'client-cover' | 'bulk-row'
   productImages: [], // Lista de imágenes del producto en creación/edición [{ id, url, previewUrl, file, name }]
   bulk: {
@@ -150,6 +151,7 @@ function setupEventListeners() {
   // Cambio de Catálogo Activo en barra superior
   adminActiveClientSelect.addEventListener('change', (e) => {
     adminState.activeClientId = e.target.value;
+    adminState.selectedProductIds.clear();
     localStorage.setItem('admin_active_client_id', adminState.activeClientId);
     updateActiveCatalogLink();
     loadStats();
@@ -220,6 +222,7 @@ function setupEventListeners() {
   setupClientModalListeners();
   setupStorageExplorerListeners();
   setupBulkUploadListeners();
+  setupBulkDeleteListeners();
 }
 
 function openAccountSettingsModal() {
@@ -1110,6 +1113,7 @@ function copyClientPublicUrl(clientId) {
 // Acceso directo a gestionar productos de un cliente específico
 function manageClientCatalog(clientId) {
   adminState.activeClientId = String(clientId);
+  adminState.selectedProductIds.clear();
   localStorage.setItem('admin_active_client_id', adminState.activeClientId);
   adminActiveClientSelect.value = adminState.activeClientId;
 
@@ -1183,7 +1187,7 @@ async function loadProducts() {
   try {
     adminTableBody.innerHTML = `
       <tr>
-        <td colspan="8" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+        <td colspan="9" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
           Actualizando inventario...
         </td>
       </tr>
@@ -1228,11 +1232,12 @@ function renderAdminTable(products) {
   if (products.length === 0) {
     adminTableBody.innerHTML = `
       <tr>
-        <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+        <td colspan="9" style="text-align: center; padding: 3rem; color: var(--text-muted);">
           No se encontraron productos registrados para este catálogo.
         </td>
       </tr>
     `;
+    updateBulkSelectionUI();
     return;
   }
 
@@ -1247,9 +1252,21 @@ function renderAdminTable(products) {
     const prodClient = adminState.clients.find(c => c.id === p.cliente_id);
     const prodSymbol = (prodClient && prodClient.moneda_simbolo) || '$';
     const imagesCount = Array.isArray(p.imagenes) ? p.imagenes.length : (p.imagen_url ? 1 : 0);
+    const isSelected = adminState.selectedProductIds.has(Number(p.id));
 
     return `
-      <tr>
+      <tr style="${isSelected ? 'background: #fef2f2;' : ''}">
+        <td style="text-align: center;">
+          <input
+            type="checkbox"
+            class="product-row-checkbox"
+            data-id="${Number(p.id)}"
+            ${isSelected ? 'checked' : ''}
+            onchange="toggleSelectProduct(${Number(p.id)}, this.checked)"
+            style="width: 17px; height: 17px; accent-color: var(--primary); cursor: pointer;"
+            title="Seleccionar este artículo"
+          />
+        </td>
         <td style="font-weight: 700; color: var(--text-muted);">#${p.id}</td>
         <td>
           <div style="position: relative; width: 48px; height: 48px;">
@@ -1315,6 +1332,155 @@ function renderAdminTable(products) {
       </tr>
     `;
   }).join('');
+
+  updateBulkSelectionUI();
+}
+
+// ==========================================================
+// SELECCIÓN Y ELIMINACIÓN MÚLTIPLE DE ARTÍCULOS (EN LOTE)
+// ==========================================================
+
+function setupBulkDeleteListeners() {
+  const selectAllCheckbox = document.getElementById('select-all-products-checkbox');
+  const btnSelectAllVisible = document.getElementById('btn-select-all-visible');
+  const btnClearSelection = document.getElementById('btn-clear-selection');
+  const btnBulkDeleteSelected = document.getElementById('btn-bulk-delete-selected');
+  const btnDeleteSelectedHeader = document.getElementById('btn-delete-selected-header');
+
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', (e) => {
+      toggleSelectAllVisibleProducts(e.target.checked);
+    });
+  }
+
+  if (btnSelectAllVisible) {
+    btnSelectAllVisible.addEventListener('click', () => {
+      toggleSelectAllVisibleProducts(true);
+    });
+  }
+
+  if (btnClearSelection) {
+    btnClearSelection.addEventListener('click', () => {
+      clearProductSelection();
+    });
+  }
+
+  if (btnBulkDeleteSelected) {
+    btnBulkDeleteSelected.addEventListener('click', () => {
+      openBulkDeleteModal();
+    });
+  }
+
+  if (btnDeleteSelectedHeader) {
+    btnDeleteSelectedHeader.addEventListener('click', () => {
+      openBulkDeleteModal();
+    });
+  }
+}
+
+function toggleSelectProduct(id, isChecked) {
+  const numericId = Number(id);
+  if (isChecked) {
+    adminState.selectedProductIds.add(numericId);
+  } else {
+    adminState.selectedProductIds.delete(numericId);
+  }
+  renderAdminTable(adminState.products);
+}
+
+function toggleSelectAllVisibleProducts(isChecked) {
+  const visibleProducts = adminState.products || [];
+  visibleProducts.forEach((p) => {
+    const numericId = Number(p.id);
+    if (isChecked) {
+      adminState.selectedProductIds.add(numericId);
+    } else {
+      adminState.selectedProductIds.delete(numericId);
+    }
+  });
+  renderAdminTable(visibleProducts);
+}
+
+function clearProductSelection() {
+  adminState.selectedProductIds.clear();
+  renderAdminTable(adminState.products);
+}
+
+function updateBulkSelectionUI() {
+  const selectedCount = adminState.selectedProductIds.size;
+  const visibleProducts = adminState.products || [];
+  const visibleSelectedCount = visibleProducts.filter((p) => adminState.selectedProductIds.has(Number(p.id))).length;
+
+  const selectAllCheckbox = document.getElementById('select-all-products-checkbox');
+  if (selectAllCheckbox) {
+    if (visibleProducts.length === 0) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    } else {
+      selectAllCheckbox.checked = visibleSelectedCount === visibleProducts.length;
+      selectAllCheckbox.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < visibleProducts.length;
+    }
+  }
+
+  const bulkBar = document.getElementById('bulk-selection-bar');
+  const countLabel = document.getElementById('bulk-selection-count-label');
+  const btnBulkDelete = document.getElementById('btn-bulk-delete-selected');
+  const btnHeaderDelete = document.getElementById('btn-delete-selected-header');
+  const btnHeaderDeleteText = document.getElementById('btn-delete-selected-header-text');
+
+  if (bulkBar) {
+    bulkBar.style.display = selectedCount > 0 ? 'flex' : 'none';
+  }
+  if (countLabel) {
+    countLabel.textContent =
+      selectedCount === 1
+        ? '✅ 1 artículo seleccionado'
+        : `✅ ${selectedCount} artículos seleccionados`;
+  }
+  if (btnBulkDelete) {
+    btnBulkDelete.textContent =
+      selectedCount === 1
+        ? '🗑️ Eliminar 1 artículo seleccionado'
+        : `🗑️ Eliminar ${selectedCount} artículos seleccionados`;
+  }
+  if (btnHeaderDelete) {
+    btnHeaderDelete.style.display = selectedCount > 0 ? 'inline-flex' : 'none';
+  }
+  if (btnHeaderDeleteText) {
+    btnHeaderDeleteText.textContent = `Eliminar seleccionados (${selectedCount})`;
+  }
+}
+
+function openBulkDeleteModal() {
+  const ids = Array.from(adminState.selectedProductIds);
+  if (ids.length === 0) {
+    showToast('Selecciona al menos un artículo para eliminar.', 'error');
+    return;
+  }
+
+  const selectedNames = ids
+    .map((id) => {
+      const found = (adminState.products || []).find((p) => Number(p.id) === Number(id));
+      return found ? `#${id} ${found.nombre}` : `#${id}`;
+    });
+
+  const previewList =
+    selectedNames.length <= 5
+      ? selectedNames.join(' • ')
+      : `${selectedNames.slice(0, 5).join(' • ')} y ${selectedNames.length - 5} más...`;
+
+  adminState.deleteTarget = { type: 'products-bulk', ids };
+  document.getElementById('delete-modal-title').textContent =
+    ids.length === 1 ? 'Eliminar 1 Artículo' : `Eliminar ${ids.length} Artículos a la vez`;
+  document.getElementById('delete-item-heading').textContent =
+    ids.length === 1
+      ? '¿Estás seguro de eliminar el artículo seleccionado?'
+      : `¿Estás seguro de eliminar estos ${ids.length} artículos a la vez?`;
+  document.getElementById('delete-item-desc').textContent =
+    'Esta acción eliminará de forma permanente todos los artículos marcados del catálogo.';
+  document.getElementById('delete-item-info').textContent = previewList;
+
+  deleteModal.classList.add('active');
 }
 
 // Ajuste Rápido de Stock
@@ -1824,28 +1990,53 @@ function closeDeleteModal() {
 
 async function executeDelete() {
   if (!adminState.deleteTarget) return;
-  const { type, id } = adminState.deleteTarget;
+  const { type, id, ids } = adminState.deleteTarget;
   const confirmBtn = document.getElementById('confirm-delete-btn');
   if (confirmBtn) {
     confirmBtn.disabled = true;
     confirmBtn.textContent = 'Eliminando...';
   }
 
-  const endpoint = type === 'client' ? `/api/admin/clientes/${id}` : `/api/products/${id}`;
+  const isBulkProducts = type === 'products-bulk';
+  const endpoint = isBulkProducts
+    ? '/api/products/bulk-delete'
+    : type === 'client'
+      ? `/api/admin/clientes/${id}`
+      : `/api/products/${id}`;
+
+  const fetchOptions = isBulkProducts
+    ? {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminState.token}`
+        },
+        body: JSON.stringify({ ids })
+      }
+    : {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${adminState.token}` }
+      };
 
   try {
-    const res = await fetch(endpoint, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${adminState.token}` }
-    });
+    const res = await fetch(endpoint, fetchOptions);
     const result = await res.json();
 
     if (res.ok && result.success) {
-      if (type === 'client' && String(adminState.activeClientId) === String(id)) {
-        adminState.activeClientId = 'all';
-        localStorage.setItem('admin_active_client_id', 'all');
+      if (isBulkProducts) {
+        (ids || []).forEach((deletedId) => adminState.selectedProductIds.delete(Number(deletedId)));
+        showToast(result.message || `${(ids || []).length} artículos eliminados.`);
+      } else if (type === 'client') {
+        if (String(adminState.activeClientId) === String(id)) {
+          adminState.activeClientId = 'all';
+          localStorage.setItem('admin_active_client_id', 'all');
+        }
+        adminState.selectedProductIds.clear();
+        showToast('Cliente y catálogo eliminados.');
+      } else {
+        adminState.selectedProductIds.delete(Number(id));
+        showToast('Producto eliminado.');
       }
-      showToast(type === 'client' ? 'Cliente y catálogo eliminados.' : 'Producto eliminado.');
       closeDeleteModal();
       await loadClients();
       updateActiveCatalogLink();
