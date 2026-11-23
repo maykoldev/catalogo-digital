@@ -117,7 +117,10 @@ app.use('/api', (req, res) => {
   });
 });
 
-// 7. Rutas de vistas y Enlaces Únicos de Catálogo
+// 7. Rutas de vistas, Enlaces Únicos de Catálogo y Vista Visual de Pedidos
+app.get('/pedido/:id', orderRoutes.handleRenderVisualOrderPage);
+app.get('/p/:id', orderRoutes.handleRenderVisualOrderPage);
+
 app.get('/c/:slug', (req, res) => {
   res.sendFile(path.join(config.ROOT_DIR, 'public', 'index.html'));
 });

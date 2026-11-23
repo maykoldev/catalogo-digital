@@ -1145,13 +1145,20 @@ async function checkoutWhatsApp() {
       },
       items: state.cart.map(item => {
         const pricing = pricingMap.get(item.id);
+        const liveProd = state.allProducts.find(p => p.id === item.id);
+        const imgUrl = (liveProd && liveProd.imagen_url) || item.imagen_url || '';
+        const imgList = (liveProd && Array.isArray(liveProd.imagenes) && liveProd.imagenes.length > 0)
+          ? liveProd.imagenes
+          : (imgUrl ? [imgUrl] : []);
         return {
           producto_id: item.id,
-          nombre: item.nombre,
+          nombre: (liveProd && liveProd.nombre) || item.nombre,
           cantidad: item.qty,
           precio_unitario: pricing ? pricing.unitPrice : Number(item.precio),
           subtotal: pricing ? pricing.subtotal : Number((Number(item.precio) * item.qty).toFixed(2)),
-          modalidad: pricing && pricing.isWholesale ? pricing.tierLabel : ''
+          modalidad: pricing && pricing.isWholesale ? pricing.tierLabel : '',
+          imagen_url: imgUrl,
+          imagenes: imgList
         };
       })
     };
