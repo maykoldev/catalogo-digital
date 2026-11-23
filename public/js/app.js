@@ -752,8 +752,31 @@ function addToCart(productId) {
 }
 
 /**
- * Extrae el tipo de artículo base (ej. perforador, tijera, pistola) y su medida/tamaño (ej. 1_pulg, 2_pulg, 20_w)
- * para agrupar variantes de la misma línea y medida sin mezclar tamaños distintos ni artículos diferentes.
+ * Convierte una medida (fracción mixta "1 1/2", fracción "5/8" o decimal "1.5") en un valor numérico limpio
+ */
+function parseMeasureValue(rawStr) {
+  const s = String(rawStr || '').trim().replace(',', '.');
+  const mixedMatch = s.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  if (mixedMatch) {
+    const whole = Number(mixedMatch[1]);
+    const num = Number(mixedMatch[2]);
+    const den = Number(mixedMatch[3]);
+    return den > 0 ? Number((whole + num / den).toFixed(4)) : whole;
+  }
+  const fracMatch = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (fracMatch) {
+    const num = Number(fracMatch[1]);
+    const den = Number(fracMatch[2]);
+    return den > 0 ? Number((num / den).toFixed(4)) : num;
+  }
+  const numVal = Number(s);
+  return !isNaN(numVal) ? Number(numVal.toFixed(4)) : s;
+}
+
+/**
+ * Extrae la familia del artículo y su medida/tamaño (ej. 5/8, 3/8, 1/2, 1", 2 pulg, 25mm, 20W)
+ * para agrupar en el carrito todas las figuras/variantes de la misma medida y precio (ej. "Reno 5/8",
+ * "Medialuna 5/8", "Abeja 5/8") aunque el nombre solo indique la figura sin la palabra "Perforador".
  */
 function extractProductTypeAndSize(nombre, categoria) {
   const clean = String(nombre || '')
@@ -762,41 +785,93 @@ function extractProductTypeAndSize(nombre, categoria) {
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
-  const withNumbers = clean
-    .replace(/\bmedia\s+(pulgadas?|pulg\b)/g, '0.5 $1')
-    .replace(/\b(?:una|un)\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '1 $1')
-    .replace(/\bdos\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '2 $1')
-    .replace(/\btres\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '3 $1')
-    .replace(/\bcuatro\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '4 $1')
-    .replace(/\bcinco\s+(pulgadas?|pulg\b|cm\b|mm\b)/g, '5 $1');
-
-  const stopWords = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'en', 'con', 'para', 'por', 'set', 'kit', 'pack']);
-  const words = withNumbers.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
-  let baseType = words.find(w => !stopWords.has(w) && !/^\d+$/.test(w)) || 'item';
-
-  if (baseType.endsWith('es') && baseType.length > 4) {
-    baseType = baseType.slice(0, -2);
-  } else if (baseType.endsWith('s') && baseType.length > 3) {
-    baseType = baseType.slice(0, -1);
-  }
-  if (baseType === 'perforadora') baseType = 'perforador';
-
-  let sizeToken = 'std';
-  const inchMatch = withNumbers.match(/(\d+(?:[.,\/]\d+)?)\s*(?:pulgadas?|pulg\.?|in\b|"|'')/);
-  if (inchMatch) {
-    sizeToken = `${inchMatch[1].replace(',', '.')}_pulg`;
-  } else {
-    const unitMatch = withNumbers.match(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m|w|g|ml|oz|l)\b/);
-    if (unitMatch) {
-      sizeToken = `${unitMatch[1].replace(',', '.')}_${unitMatch[2]}`;
-    }
-  }
-
   const catClean = String(categoria || 'general')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
+
+  // Normalizar fracciones escritas en palabras ("5 octavos", "cinco octavos", "3 cuartos", "1 y medio") y con barra ("5 / 8")
+  const wordToNum = {
+    un: '1',
+    uno: '1',
+    una: '1',
+    dos: '2',
+    tres: '3',
+    cuatro: '4',
+    cinco: '5',
+    seis: '6',
+    siete: '7',
+    ocho: '8',
+    nueve: '9',
+    diez: '10'
+  };
+
+  const withNumbers = clean
+    .replace(
+      /\b(un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?=octavos?\b|cuartos?\b|medios?\b|tercios?\b|dieciseisavos?\b|pulgadas?\b|pulg\b|cm\b|mm\b|y\s+medi[oa]\b)/g,
+      (_, w) => `${wordToNum[w] || w} `
+    )
+    .replace(/(\d+)\s+y\s+medi[oa]\b/g, '$1 1/2')
+    .replace(/\b(\d+)\s*(?:de\s+)?octavos?\b/g, '$1/8')
+    .replace(/\b(\d+)\s*(?:de\s+)?cuartos?\b/g, '$1/4')
+    .replace(/\b(\d+)\s*(?:de\s+)?medios?\b/g, '$1/2')
+    .replace(/\b(\d+)\s*(?:de\s+)?tercios?\b/g, '$1/3')
+    .replace(/\b(\d+)\s*(?:de\s+)?dieciseisavos?\b/g, '$1/16')
+    .replace(/(\d+)\s*\/\s*(\d+)/g, '$1/$2')
+    .replace(/\bmedia\s+(pulgadas?|pulg\b)/g, '0.5 $1');
+
+  let sizeToken = 'std';
+
+  // 1. Medida explícita en pulgadas (ej. '5/8"', '1 1/2 pulg', '2 pulgadas')
+  const inchMatch = withNumbers.match(/(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:[.,]\d+)?)\s*(?:pulgadas?|pulg\.?|in\b|"|'')/);
+  // 2. Medida con otra unidad explícita (cm, mm, m, w, g, ml, oz, l)
+  const unitMatch = !inchMatch
+    ? withNumbers.match(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m|w|g|ml|oz|l)\b/)
+    : null;
+  // 3. Fracción de medida sin símbolo de pulgadas (ej. "Reno 5/8", "Medialuna 5/8", "Abeja 5/8", "Estrella 1 1/2")
+  const fractionMatch = !inchMatch && !unitMatch
+    ? withNumbers.match(/\b(\d+\s+\d+\/\d+|\d+\/\d+)\b/)
+    : null;
+  // 4. Número de medida suelto al final del nombre (ej. "Reno 1", "Mariposa 1.5", "Estrella 2")
+  const trailingNumberMatch = !inchMatch && !unitMatch && !fractionMatch
+    ? withNumbers.match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*$/)
+    : null;
+
+  if (inchMatch) {
+    sizeToken = `${parseMeasureValue(inchMatch[1])}_pulg`;
+  } else if (unitMatch) {
+    sizeToken = `${parseMeasureValue(unitMatch[1])}_${unitMatch[2]}`;
+  } else if (fractionMatch) {
+    sizeToken = `${parseMeasureValue(fractionMatch[1])}_pulg`;
+  } else if (trailingNumberMatch) {
+    sizeToken = `${parseMeasureValue(trailingNumberMatch[1])}_pulg`;
+  }
+
+  // Solo separar por familia de herramienta si el nombre menciona explícitamente una familia distinta
+  // (para que nombres de figuras como "Reno 5/8", "Medialuna 5/8", "Abeja 5/8" o "Perforador Reno 5/8"
+  // siempre compartan el mismo grupo dentro de su categoría, medida y precio).
+  const distinctFamilies = [
+    { key: 'tijera', regex: /\btijeras?\b/ },
+    { key: 'pistola', regex: /\bpistolas?\b/ },
+    { key: 'silicon', regex: /\b(?:silicon|silicona)\b/ },
+    { key: 'regla', regex: /\breglas?\b/ },
+    { key: 'cinta', regex: /\bcintas?\b/ },
+    { key: 'pegamento', regex: /\b(?:pegamento|pega|cola)\b/ },
+    { key: 'cuaderno', regex: /\b(?:cuadernos?|libretas?)\b/ },
+    { key: 'cartuchera', regex: /\bcartucheras?\b/ },
+    { key: 'mochila', regex: /\bmochilas?\b/ }
+  ];
+
+  let baseType = 'variante';
+  if (catClean === 'general') {
+    for (const fam of distinctFamilies) {
+      if (fam.regex.test(withNumbers)) {
+        baseType = fam.key;
+        break;
+      }
+    }
+  }
 
   return {
     baseType,
