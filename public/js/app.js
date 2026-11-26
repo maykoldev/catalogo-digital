@@ -166,14 +166,53 @@ function formatWholesaleConditionLabel(p) {
   return '(docena)';
 }
 
+// Determina la sección / categoría específica por tamaño o tipo (incluso si fue subido como "PERFORADORES")
+function resolveProductSectionTitle(p) {
+  const rawCat = String((p && p.categoria) || 'General').trim();
+  if (rawCat.toUpperCase() !== 'PERFORADORES') {
+    return rawCat;
+  }
+  const code = String((p && p.codigo) || '').trim();
+  const nameUpper = String((p && p.nombre) || '').toUpperCase();
+  if (nameUpper.includes('BOX')) return 'Box de Perforadores';
+  if (nameUpper.includes('MALETA')) return 'Maletas de Perforadores';
+  if (code === '8805' || nameUpper.includes('5/8')) return 'Perforadores de 5/8';
+  if (nameUpper.includes('3/8')) return 'Perforadores de 3/8';
+  if (code === '8815' || nameUpper.includes('1.5') || nameUpper.includes('1 1/2')) return 'Perforadores de 1.5 pulgadas';
+  if (code === '8820' || /2\s*("|PULG)/.test(nameUpper)) return 'Perforadores de 2 pulgadas';
+  if (code === '8810' || /1\s*("|PULG)/.test(nameUpper)) return 'Perforadores de 1 pulgada';
+  return rawCat;
+}
+
+// Orden lógico de las secciones para que aparezcan ordenadas por medida una debajo de otra
+function getSectionSortPriority(sectionName) {
+  const clean = String(sectionName || '').toLowerCase();
+  if (clean.includes('perforadores') && clean.includes('3/8')) return 10;
+  if (clean.includes('perforadores') && clean.includes('5/8')) return 20;
+  if (clean.includes('perforadores') && (clean.includes('1 pulgada') || clean.endsWith(' 1"') || clean.endsWith(' 1'))) return 30;
+  if (clean.includes('perforadores') && (clean.includes('1.5') || clean.includes('1 1/2'))) return 40;
+  if (clean.includes('perforadores') && clean.includes('2')) return 50;
+  if (clean.includes('box')) return 60;
+  if (clean.includes('maleta')) return 70;
+  return 100;
+}
+
 // Construir conteo de categorías dinámicamente a partir de los productos del cliente
 function buildCategoriesFromProducts(products) {
   const counts = new Map();
   products.forEach(p => {
-    const cat = p.categoria || 'General';
+    const cat = resolveProductSectionTitle(p);
+    p.categoria = cat;
     counts.set(cat, (counts.get(cat) || 0) + 1);
   });
-  return Array.from(counts.entries()).map(([categoria, count]) => ({ categoria, count }));
+  return Array.from(counts.entries())
+    .map(([categoria, count]) => ({ categoria, count }))
+    .sort((a, b) => {
+      const prioA = getSectionSortPriority(a.categoria);
+      const prioB = getSectionSortPriority(b.categoria);
+      if (prioA !== prioB) return prioA - prioB;
+      return a.categoria.localeCompare(b.categoria, 'es', { sensitivity: 'base' });
+    });
 }
 
 // Consulta dinámica de cliente (/api/clientes) y sus productos (/api/productos/:cliente_id)
@@ -239,22 +278,44 @@ async function loadCatalogData() {
   }
 }
 
+// Normaliza texto sin acentos para búsqueda precisa
+function normalizeSearchText(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
 // Aplicar filtros, búsqueda y ordenamiento sobre los productos cargados del comercio
 function applyFiltersAndRender() {
   let filtered = [...state.allProducts];
 
   if (state.selectedCategory !== 'all') {
-    filtered = filtered.filter(p => p.categoria === state.selectedCategory);
+    filtered = filtered.filter(p => resolveProductSectionTitle(p) === state.selectedCategory);
   }
 
   if (state.searchQuery) {
-    const q = state.searchQuery.toLowerCase();
-    filtered = filtered.filter(p =>
-      (p.codigo && p.codigo.toLowerCase().includes(q)) ||
-      p.nombre.toLowerCase().includes(q) ||
-      p.descripcion.toLowerCase().includes(q) ||
-      p.categoria.toLowerCase().includes(q)
-    );
+    const qNorm = normalizeSearchText(state.searchQuery);
+    const tokens = qNorm.split(/\s+/).filter(Boolean);
+
+    // 1. Coincidencia prioritaria por nombre, código o categoría (todos los términos buscados deben coincidir)
+    const primaryMatches = filtered.filter(p => {
+      const haystack = normalizeSearchText(`${p.nombre || ''} ${p.codigo || ''} ${resolveProductSectionTitle(p)}`);
+      return tokens.every(tok => haystack.includes(tok));
+    });
+
+    if (primaryMatches.length > 0) {
+      filtered = primaryMatches;
+    } else {
+      // 2. Respaldo incluyendo descripción solo si no hubo coincidencias por nombre/código/categoría
+      filtered = filtered.filter(p => {
+        const haystack = normalizeSearchText(
+          `${p.nombre || ''} ${p.codigo || ''} ${resolveProductSectionTitle(p)} ${p.descripcion || ''}`
+        );
+        return tokens.every(tok => haystack.includes(tok));
+      });
+    }
   }
 
   if (state.onlyInStock) {
@@ -410,7 +471,93 @@ function renderCategoryTabs() {
   });
 }
 
-// Renderizar tarjetas de productos
+// Renderizar una tarjeta individual de producto
+function renderSingleProductCard(p) {
+  let stockOverlayHtml = '';
+
+  if (p.inventario === 0) {
+    stockOverlayHtml = `
+      <div class="product-stock-overlay">
+        <span class="badge badge-stock-out">Agotado</span>
+      </div>
+    `;
+  } else if (p.mostrar_stock) {
+    const stockBadgeClass = p.inventario <= 5 ? 'badge-stock-low' : 'badge-stock-in';
+    const stockText = p.inventario <= 5 ? `¡Últimas ${p.inventario} unid.!` : `${p.inventario} disponibles`;
+    stockOverlayHtml = `
+      <div class="product-stock-overlay">
+        <span class="badge ${stockBadgeClass}">${stockText}</span>
+      </div>
+    `;
+  }
+
+  return `
+    <article class="product-card">
+      <div class="product-image-container" onclick="openProductDetail(${p.id})">
+        <img 
+          src="${p.imagen_url}" 
+          alt="${p.nombre}" 
+          class="product-image" 
+          loading="lazy"
+          onerror="this.onerror=null; this.src='https://placehold.co/400x400/e2e8f0/475569?text=Sin+Imagen';"
+        />
+        <div class="product-category-overlay" style="display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; right: 0.75rem;">
+          <span class="badge badge-category">${p.categoria}</span>
+          ${
+            p.codigo
+              ? `<span class="badge badge-code" style="background: rgba(15, 23, 42, 0.84); color: #ffffff; font-family: monospace; font-weight: 800; backdrop-filter: blur(4px);">${p.codigo}</span>`
+              : ''
+          }
+        </div>
+        ${
+          p.imagenes && p.imagenes.length > 1
+            ? `<div class="product-photos-overlay">
+                <span class="badge product-photos-badge">
+                  📷 ${p.imagenes.length}
+                </span>
+              </div>`
+            : ''
+        }
+        ${stockOverlayHtml}
+      </div>
+
+      <div class="product-card-body">
+        <h3 class="product-title" onclick="openProductDetail(${p.id})" style="cursor: pointer;" title="${p.nombre}">
+          ${p.nombre}
+        </h3>
+        <p class="product-description-snippet">${p.descripcion}</p>
+
+        <div class="product-footer">
+          <div>
+            <div class="product-price">
+              ${state.currencySymbol}${Number(p.precio).toFixed(2)}
+            </div>
+            ${
+              p.precio_mayor && Number(p.precio_mayor) > 0
+                ? `<div style="font-size: 0.75rem; font-weight: 700; color: #047857; margin-top: 2px;">${formatWholesalePrefixLabel(p)}: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(p)}</div>`
+                : ''
+            }
+          </div>
+          <div class="product-actions">
+            <button class="btn btn-secondary btn-sm" onclick="openProductDetail(${p.id})" title="Ver detalles completos">
+              Detalles
+            </button>
+            <button 
+              class="btn btn-primary btn-sm" 
+              onclick="addToCart(${p.id})"
+              ${p.inventario === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}
+              title="Agregar al pedido"
+            >
+              + Pedir
+            </button>
+          </div>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+// Renderizar tarjetas de productos agrupadas y separadas por sección / tamaño una debajo de otra
 function renderProducts(products) {
   if (products.length === 0) {
     productsGrid.innerHTML = `
@@ -423,90 +570,50 @@ function renderProducts(products) {
     return;
   }
 
-  productsGrid.innerHTML = products.map(p => {
-    let stockOverlayHtml = '';
-
-    if (p.inventario === 0) {
-      stockOverlayHtml = `
-        <div class="product-stock-overlay">
-          <span class="badge badge-stock-out">Agotado</span>
-        </div>
-      `;
-    } else if (p.mostrar_stock) {
-      const stockBadgeClass = p.inventario <= 5 ? 'badge-stock-low' : 'badge-stock-in';
-      const stockText = p.inventario <= 5 ? `¡Últimas ${p.inventario} unid.!` : `${p.inventario} disponibles`;
-      stockOverlayHtml = `
-        <div class="product-stock-overlay">
-          <span class="badge ${stockBadgeClass}">${stockText}</span>
-        </div>
-      `;
+  // Agrupar productos por su sección/medida para mostrarlos separados uno debajo del otro con su título <h2>
+  const sectionsMap = new Map();
+  products.forEach(p => {
+    const secTitle = resolveProductSectionTitle(p);
+    if (!sectionsMap.has(secTitle)) {
+      sectionsMap.set(secTitle, []);
     }
+    sectionsMap.get(secTitle).push(p);
+  });
 
-    return `
-      <article class="product-card">
-        <div class="product-image-container" onclick="openProductDetail(${p.id})">
-          <img 
-            src="${p.imagen_url}" 
-            alt="${p.nombre}" 
-            class="product-image" 
-            loading="lazy"
-            onerror="this.onerror=null; this.src='https://placehold.co/400x400/e2e8f0/475569?text=Sin+Imagen';"
-          />
-          <div class="product-category-overlay" style="display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; right: 0.75rem;">
-            <span class="badge badge-category">${p.categoria}</span>
-            ${
-              p.codigo
-                ? `<span class="badge badge-code" style="background: rgba(15, 23, 42, 0.84); color: #ffffff; font-family: monospace; font-weight: 800; backdrop-filter: blur(4px);">${p.codigo}</span>`
-                : ''
-            }
+  const sortedSections = Array.from(sectionsMap.entries()).sort((a, b) => {
+    const prioA = getSectionSortPriority(a[0]);
+    const prioB = getSectionSortPriority(b[0]);
+    if (prioA !== prioB) return prioA - prioB;
+    return a[0].localeCompare(b[0], 'es', { sensitivity: 'base' });
+  });
+
+  productsGrid.innerHTML = sortedSections
+    .map(([sectionTitle, sectionItems], idx) => {
+      const sampleItem = sectionItems[0];
+      const wholesaleSummary =
+        sampleItem && sampleItem.precio_mayor && Number(sampleItem.precio_mayor) > 0
+          ? `<span style="font-size: 0.8rem; font-weight: 700; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 0.2rem 0.65rem; border-radius: 999px;">
+              ${formatWholesalePrefixLabel(sampleItem)}: ${state.currencySymbol}${Number(sampleItem.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(sampleItem)}
+            </span>`
+          : '';
+
+      const headerHtml = `
+        <div class="catalog-section-divider" style="grid-column: 1 / -1; margin-top: ${idx === 0 ? '0.25rem' : '1.75rem'}; margin-bottom: 0.25rem; background: #ffffff; border: 1px solid var(--border-light); border-left: 5px solid var(--primary); border-radius: var(--radius-md); padding: 0.85rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; box-shadow: var(--shadow-sm);">
+          <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+            <h2 style="font-size: 1.25rem; font-weight: 800; color: var(--text-main); margin: 0; letter-spacing: -0.01em;">
+              ${sectionTitle}
+            </h2>
+            <span class="badge badge-category" style="font-size: 0.78rem; font-weight: 700;">
+              ${sectionItems.length} ${sectionItems.length === 1 ? 'producto' : 'productos'}
+            </span>
           </div>
-          ${
-            p.imagenes && p.imagenes.length > 1
-              ? `<div class="product-photos-overlay">
-                  <span class="badge product-photos-badge">
-                    📷 ${p.imagenes.length}
-                  </span>
-                </div>`
-              : ''
-          }
-          ${stockOverlayHtml}
+          ${wholesaleSummary}
         </div>
+      `;
 
-        <div class="product-card-body">
-          <h3 class="product-title" onclick="openProductDetail(${p.id})" style="cursor: pointer;" title="${p.nombre}">
-            ${p.nombre}
-          </h3>
-          <p class="product-description-snippet">${p.descripcion}</p>
-
-          <div class="product-footer">
-            <div>
-              <div class="product-price">
-                ${state.currencySymbol}${Number(p.precio).toFixed(2)}
-              </div>
-              ${
-                p.precio_mayor && Number(p.precio_mayor) > 0
-                  ? `<div style="font-size: 0.75rem; font-weight: 700; color: #047857; margin-top: 2px;">${formatWholesalePrefixLabel(p)}: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(p)}</div>`
-                  : ''
-              }
-            </div>
-            <div class="product-actions">
-              <button class="btn btn-secondary btn-sm" onclick="openProductDetail(${p.id})" title="Ver detalles completos">
-                Detalles
-              </button>
-              <button 
-                class="btn btn-primary btn-sm" 
-                onclick="addToCart(${p.id})"
-                ${p.inventario === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}
-                title="Agregar al pedido"
-              >
-                + Pedir
-              </button>
-            </div>
-          </div>
-        </div>
-      </article>
-    `;
-  }).join('');
+      return headerHtml + sectionItems.map(renderSingleProductCard).join('');
+    })
+    .join('');
 }
 
 // Modal de Detalle con Galería / Carrusel Multi-Imagen
