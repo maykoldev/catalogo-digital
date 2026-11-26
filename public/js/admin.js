@@ -219,10 +219,40 @@ function setupEventListeners() {
   }
 
   setupImageInputListeners();
+  setupWholesaleTypeListeners();
   setupClientModalListeners();
   setupStorageExplorerListeners();
   setupBulkUploadListeners();
   setupBulkDeleteListeners();
+}
+
+function setupWholesaleTypeListeners() {
+  const typeSelect = document.getElementById('prod-wholesale-type');
+  const minInput = document.getElementById('prod-wholesale-min');
+  const priceInput = document.getElementById('prod-wholesale-price');
+  if (!typeSelect || !minInput) return;
+
+  typeSelect.addEventListener('change', () => {
+    if (typeSelect.value === 'custom') {
+      minInput.style.display = 'block';
+      if (!minInput.value) minInput.value = '3';
+      minInput.focus();
+    } else {
+      minInput.style.display = 'none';
+    }
+    if (priceInput) {
+      priceInput.placeholder =
+        typeSelect.value === 'docena' ? 'Ej: 36.00 (docena)' : 'Ej: 2.50 (c/u al mayor)';
+    }
+  });
+}
+
+function formatAdminWholesaleCondition(p) {
+  if (p && p.modalidad_mayor === 'unidades' && Number(p.minimo_mayor) >= 1) {
+    const n = Math.floor(Number(p.minimo_mayor));
+    return `(a partir de ${n} ${n === 1 ? 'unid.' : 'unid.'})`;
+  }
+  return '(docena)';
 }
 
 function openAccountSettingsModal() {
@@ -1309,7 +1339,7 @@ function renderAdminTable(products) {
           <div>${escapeHtml(prodSymbol)}${Number(p.precio).toFixed(2)}</div>
           ${
             p.precio_mayor !== undefined && p.precio_mayor !== null && Number(p.precio_mayor) > 0
-              ? `<div style="font-size: 0.72rem; color: #047857; font-weight: 700; margin-top: 2px;">Mayor: ${escapeHtml(prodSymbol)}${Number(p.precio_mayor).toFixed(2)}</div>`
+              ? `<div style="font-size: 0.72rem; color: #047857; font-weight: 700; margin-top: 2px;">Mayor: ${escapeHtml(prodSymbol)}${Number(p.precio_mayor).toFixed(2)} <span style="font-weight: 600;">${formatAdminWholesaleCondition(p)}</span></div>`
               : ''
           }
         </td>
@@ -1595,6 +1625,26 @@ function openProductForm(mode, product = null) {
       product.precio_mayor !== undefined && product.precio_mayor !== null && Number(product.precio_mayor) > 0
         ? product.precio_mayor
         : '';
+    const wholesaleTypeEl = document.getElementById('prod-wholesale-type');
+    const wholesaleMinEl = document.getElementById('prod-wholesale-min');
+    if (wholesaleTypeEl && wholesaleMinEl) {
+      if (product.modalidad_mayor === 'unidades' && Number(product.minimo_mayor) >= 1) {
+        const minQty = Math.floor(Number(product.minimo_mayor));
+        if (['3', '6', '12'].includes(String(minQty))) {
+          wholesaleTypeEl.value = String(minQty);
+          wholesaleMinEl.value = String(minQty);
+          wholesaleMinEl.style.display = 'none';
+        } else {
+          wholesaleTypeEl.value = 'custom';
+          wholesaleMinEl.value = String(minQty);
+          wholesaleMinEl.style.display = 'block';
+        }
+      } else {
+        wholesaleTypeEl.value = 'docena';
+        wholesaleMinEl.value = '';
+        wholesaleMinEl.style.display = 'none';
+      }
+    }
     document.getElementById('prod-stock').value = product.inventario;
     const showStockEl = document.getElementById('prod-show-stock');
     if (showStockEl) showStockEl.checked = Boolean(product.mostrar_stock);
@@ -1631,6 +1681,13 @@ function openProductForm(mode, product = null) {
     if (codeInputEl) codeInputEl.value = '';
     const wholesaleEl = document.getElementById('prod-wholesale-price');
     if (wholesaleEl) wholesaleEl.value = '';
+    const wholesaleTypeEl = document.getElementById('prod-wholesale-type');
+    const wholesaleMinEl = document.getElementById('prod-wholesale-min');
+    if (wholesaleTypeEl) wholesaleTypeEl.value = 'docena';
+    if (wholesaleMinEl) {
+      wholesaleMinEl.value = '';
+      wholesaleMinEl.style.display = 'none';
+    }
     const showStockEl = document.getElementById('prod-show-stock');
     if (showStockEl) showStockEl.checked = false;
   }
@@ -1698,6 +1755,23 @@ async function handleProductFormSubmit(e) {
     rawWholesale !== '' && !isNaN(Number(rawWholesale)) && Number(rawWholesale) > 0
       ? parseFloat(rawWholesale)
       : null;
+
+  const wholesaleTypeVal = document.getElementById('prod-wholesale-type')?.value || 'docena';
+  const rawWholesaleMin = document.getElementById('prod-wholesale-min')?.value?.trim() || '';
+  let modalidad_mayor = 'docena';
+  let minimo_mayor = null;
+
+  if (wholesaleTypeVal !== 'docena') {
+    modalidad_mayor = 'unidades';
+    if (wholesaleTypeVal === 'custom') {
+      const parsedMin = parseInt(rawWholesaleMin, 10);
+      minimo_mayor = !isNaN(parsedMin) && parsedMin >= 1 ? parsedMin : 3;
+    } else {
+      const parsedMin = parseInt(wholesaleTypeVal, 10);
+      minimo_mayor = !isNaN(parsedMin) && parsedMin >= 1 ? parsedMin : 3;
+    }
+  }
+
   const mostrarStock = Boolean(document.getElementById('prod-show-stock')?.checked);
 
   const prodCodeVal = document.getElementById('prod-code')?.value?.trim() || '';
@@ -1710,6 +1784,8 @@ async function handleProductFormSubmit(e) {
     formData.append('categoria', document.getElementById('prod-category').value);
     formData.append('precio', document.getElementById('prod-price').value);
     formData.append('precio_mayor', parsedWholesale !== null ? String(parsedWholesale) : '');
+    formData.append('modalidad_mayor', modalidad_mayor);
+    formData.append('minimo_mayor', minimo_mayor !== null ? String(minimo_mayor) : '');
     formData.append('inventario', document.getElementById('prod-stock').value);
     formData.append('mostrar_stock', mostrarStock ? 'true' : 'false');
     formData.append('descripcion', document.getElementById('prod-description').value);
@@ -1726,6 +1802,8 @@ async function handleProductFormSubmit(e) {
       categoria: document.getElementById('prod-category').value,
       precio: parseFloat(document.getElementById('prod-price').value),
       precio_mayor: parsedWholesale,
+      modalidad_mayor,
+      minimo_mayor,
       inventario: parseInt(document.getElementById('prod-stock').value, 10),
       mostrar_stock: mostrarStock,
       descripcion: document.getElementById('prod-description').value,
@@ -2702,6 +2780,8 @@ function setupBulkUploadListeners() {
         categoria: 'General',
         precio: 0,
         precio_mayor: null,
+        modalidad_mayor: 'docena',
+        minimo_mayor: null,
         inventario: 10,
         descripcion: '',
         imagen_url: ''
@@ -2875,6 +2955,8 @@ async function loadFolderImagesAsBulkRows() {
         categoria: 'General',
         precio: 0,
         precio_mayor: null,
+        modalidad_mayor: 'docena',
+        minimo_mayor: null,
         inventario: 10,
         descripcion: '',
         imagen_url: f.url
@@ -2919,6 +3001,10 @@ function renderBulkPreviewTable() {
     .map((r, idx) => {
       const thumbUrl = r.imagen_url || 'https://placehold.co/80x80/e2e8f0/475569?text=IMG';
       const mayorVal = r.precio_mayor !== null && r.precio_mayor !== undefined && r.precio_mayor !== '' ? r.precio_mayor : '';
+      const isUnidades = r.modalidad_mayor === 'unidades' && Number(r.minimo_mayor) >= 1;
+      const minQty = isUnidades ? Math.floor(Number(r.minimo_mayor)) : null;
+      const isPresetMin = isUnidades && ['3', '6', '12'].includes(String(minQty));
+      const selectModeVal = !isUnidades ? 'docena' : isPresetMin ? String(minQty) : 'custom';
       return `
         <tr>
           <td style="font-weight: 700; color: var(--text-muted);">${idx + 1}</td>
@@ -2978,16 +3064,39 @@ function renderBulkPreviewTable() {
             />
           </td>
           <td>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              class="form-control"
-              style="padding: 0.3rem 0.5rem; font-size: 0.8125rem;"
-              value="${mayorVal}"
-              placeholder="Opcional"
-              oninput="updateBulkRowField(${idx}, 'precio_mayor', this.value)"
-            />
+            <div style="display: flex; gap: 0.25rem; align-items: center;">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                class="form-control"
+                style="padding: 0.3rem 0.4rem; font-size: 0.8125rem; width: 78px;"
+                value="${mayorVal}"
+                placeholder="Precio"
+                oninput="updateBulkRowField(${idx}, 'precio_mayor', this.value)"
+              />
+              <select
+                class="form-select"
+                style="padding: 0.3rem 1.2rem 0.3rem 0.35rem; font-size: 0.74rem; min-width: 102px;"
+                onchange="updateBulkRowWholesaleType(${idx}, this.value)"
+              >
+                <option value="docena" ${selectModeVal === 'docena' ? 'selected' : ''}>Por docena</option>
+                <option value="3" ${selectModeVal === '3' ? 'selected' : ''}>≥ 3 unid.</option>
+                <option value="6" ${selectModeVal === '6' ? 'selected' : ''}>≥ 6 unid.</option>
+                <option value="12" ${selectModeVal === '12' ? 'selected' : ''}>≥ 12 unid.</option>
+                <option value="custom" ${selectModeVal === 'custom' ? 'selected' : ''}>≥ X unid.</option>
+              </select>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                class="form-control"
+                style="display: ${selectModeVal === 'custom' ? 'block' : 'none'}; width: 52px; padding: 0.3rem 0.3rem; font-size: 0.75rem; text-align: center;"
+                value="${minQty || 3}"
+                title="Cantidad mínima de unidades"
+                oninput="updateBulkRowField(${idx}, 'minimo_mayor', this.value)"
+              />
+            </div>
           </td>
           <td>
             <input
@@ -3021,6 +3130,24 @@ function renderBulkPreviewTable() {
     .join('');
 }
 
+function updateBulkRowWholesaleType(rowIndex, modeValue) {
+  const row = adminState.bulk.rows[rowIndex];
+  if (!row) return;
+  if (modeValue === 'docena') {
+    row.modalidad_mayor = 'docena';
+    row.minimo_mayor = null;
+  } else if (modeValue === 'custom') {
+    row.modalidad_mayor = 'unidades';
+    if (!row.minimo_mayor || Number(row.minimo_mayor) < 1) {
+      row.minimo_mayor = 4;
+    }
+  } else {
+    row.modalidad_mayor = 'unidades';
+    row.minimo_mayor = parseInt(modeValue, 10) || 3;
+  }
+  renderBulkPreviewTable();
+}
+
 function updateBulkRowField(rowIndex, field, value) {
   const row = adminState.bulk.rows[rowIndex];
   if (!row) return;
@@ -3028,6 +3155,9 @@ function updateBulkRowField(rowIndex, field, value) {
     row.precio = value === '' ? 0 : parseFloat(value);
   } else if (field === 'precio_mayor') {
     row.precio_mayor = value === '' || Number(value) <= 0 ? null : parseFloat(value);
+  } else if (field === 'minimo_mayor') {
+    row.modalidad_mayor = 'unidades';
+    row.minimo_mayor = value === '' || Number(value) < 1 ? 1 : Math.floor(Number(value));
   } else if (field === 'inventario') {
     row.inventario = value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0);
   } else {

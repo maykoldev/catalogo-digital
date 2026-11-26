@@ -69,14 +69,63 @@ class ProductService {
   }
 
   /**
-   * Formatea una fila de SQLite asegurando el arreglo `imagenes` y `mostrar_stock`
+   * Normaliza la modalidad de venta al por mayor ('docena' o 'unidades' con cantidad mínima)
+   */
+  static normalizeWholesaleInput(modalidad_mayor, minimo_mayor) {
+    const rawMod =
+      modalidad_mayor !== undefined && modalidad_mayor !== null
+        ? String(modalidad_mayor).trim().toLowerCase()
+        : '';
+    const rawMin =
+      minimo_mayor !== undefined && minimo_mayor !== null && minimo_mayor !== ''
+        ? Number(minimo_mayor)
+        : null;
+
+    if (rawMin !== null && !isNaN(rawMin) && rawMin >= 1 && rawMod !== 'docena') {
+      return {
+        modalidad_mayor: 'unidades',
+        minimo_mayor: Math.max(1, Math.floor(rawMin))
+      };
+    }
+
+    if (rawMod && rawMod !== 'docena' && rawMod !== 'por docena') {
+      const numMatch = rawMod.match(/(\d+)/);
+      if (numMatch) {
+        const parsedNum = parseInt(numMatch[1], 10);
+        if (!isNaN(parsedNum) && parsedNum >= 1) {
+          return {
+            modalidad_mayor: 'unidades',
+            minimo_mayor: parsedNum
+          };
+        }
+      }
+      if (rawMod === 'unidades' || rawMod === 'unidad' || rawMod === 'custom') {
+        const minVal = rawMin !== null && !isNaN(rawMin) && rawMin >= 1 ? Math.floor(rawMin) : 3;
+        return {
+          modalidad_mayor: 'unidades',
+          minimo_mayor: minVal
+        };
+      }
+    }
+
+    return {
+      modalidad_mayor: 'docena',
+      minimo_mayor: null
+    };
+  }
+
+  /**
+   * Formatea una fila de SQLite asegurando el arreglo `imagenes`, `mostrar_stock` y modalidad al mayor
    */
   static formatRow(row) {
     if (!row) return null;
     const { imagen_url, imagenes } = this.normalizeImagesInput(row.imagenes_json, row.imagen_url);
+    const wholesaleCfg = this.normalizeWholesaleInput(row.modalidad_mayor, row.minimo_mayor);
     const copy = {
       ...row,
       codigo: row.codigo ? String(row.codigo).trim() : '',
+      modalidad_mayor: wholesaleCfg.modalidad_mayor,
+      minimo_mayor: wholesaleCfg.minimo_mayor,
       mostrar_stock: Boolean(row.mostrar_stock),
       imagen_url,
       imagenes
@@ -159,7 +208,7 @@ class ProductService {
   /**
    * Crea un producto asociado a un cliente específico
    */
-  static create({ cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
+  static create({ cliente_id, codigo, nombre, descripcion, precio, precio_mayor, modalidad_mayor, minimo_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     if (!cliente_id) {
       throw new Error('Debe especificar el cliente o empresa al que pertenece el producto.');
     }
@@ -187,13 +236,14 @@ class ProductService {
         ? Number(Number(precio_mayor).toFixed(2))
         : null;
 
+    const wholesaleCfg = this.normalizeWholesaleInput(modalidad_mayor, minimo_mayor);
     const parsedMostrarStock = this.parseMostrarStock(mostrar_stock, false) ? 1 : 0;
     const normalizedImg = this.normalizeImagesInput(imagenes, imagen_url);
     const cleanCodigo = codigo !== undefined && codigo !== null ? String(codigo).trim() : '';
 
     const stmt = db.prepare(`
-      INSERT INTO productos (cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO productos (cliente_id, codigo, nombre, descripcion, precio, precio_mayor, modalidad_mayor, minimo_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -203,6 +253,8 @@ class ProductService {
       (descripcion || '').trim(),
       Number(precio),
       parsedMayor,
+      wholesaleCfg.modalidad_mayor,
+      wholesaleCfg.minimo_mayor,
       Math.floor(Number(inventario)),
       parsedMostrarStock,
       categoria.trim(),
@@ -232,8 +284,8 @@ class ProductService {
     }
 
     const stmt = db.prepare(`
-      INSERT INTO productos (cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO productos (cliente_id, codigo, nombre, descripcion, precio, precio_mayor, modalidad_mayor, minimo_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((items) => {
@@ -248,6 +300,7 @@ class ProductService {
           ? Number(raw.precio_mayor)
           : null;
         const precio_mayor = rawMayor !== null && !isNaN(rawMayor) && rawMayor > 0 ? Number(rawMayor.toFixed(2)) : null;
+        const wholesaleCfg = this.normalizeWholesaleInput(raw.modalidad_mayor, raw.minimo_mayor);
         const rawInv = raw.inventario !== undefined && raw.inventario !== null && raw.inventario !== ''
           ? Number(raw.inventario)
           : 10;
@@ -264,6 +317,8 @@ class ProductService {
           descripcion,
           precio,
           precio_mayor,
+          wholesaleCfg.modalidad_mayor,
+          wholesaleCfg.minimo_mayor,
           inventario,
           mostrar_stock,
           categoria,
@@ -290,7 +345,7 @@ class ProductService {
   /**
    * Actualiza los datos de un producto
    */
-  static update(id, { cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
+  static update(id, { cliente_id, codigo, nombre, descripcion, precio, precio_mayor, modalidad_mayor, minimo_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
@@ -307,6 +362,13 @@ class ProductService {
           ? Number(Number(precio_mayor).toFixed(2))
           : null
         : existing.precio_mayor;
+    const wholesaleCfg =
+      modalidad_mayor !== undefined || minimo_mayor !== undefined
+        ? this.normalizeWholesaleInput(
+            modalidad_mayor !== undefined ? modalidad_mayor : existing.modalidad_mayor,
+            minimo_mayor !== undefined ? minimo_mayor : existing.minimo_mayor
+          )
+        : this.normalizeWholesaleInput(existing.modalidad_mayor, existing.minimo_mayor);
     const newInventario = inventario !== undefined ? Math.floor(Number(inventario)) : existing.inventario;
     const newMostrarStock =
       mostrar_stock !== undefined
@@ -328,7 +390,7 @@ class ProductService {
 
     const stmt = db.prepare(`
       UPDATE productos
-      SET cliente_id = ?, codigo = ?, nombre = ?, descripcion = ?, precio = ?, precio_mayor = ?, inventario = ?, mostrar_stock = ?, categoria = ?, imagen_url = ?, imagenes_json = ?, updated_at = (datetime('now', 'localtime'))
+      SET cliente_id = ?, codigo = ?, nombre = ?, descripcion = ?, precio = ?, precio_mayor = ?, modalidad_mayor = ?, minimo_mayor = ?, inventario = ?, mostrar_stock = ?, categoria = ?, imagen_url = ?, imagenes_json = ?, updated_at = (datetime('now', 'localtime'))
       WHERE id = ?
     `);
 
@@ -339,6 +401,8 @@ class ProductService {
       newDesc,
       newPrecio,
       newPrecioMayor,
+      wholesaleCfg.modalidad_mayor,
+      wholesaleCfg.minimo_mayor,
       newInventario,
       newMostrarStock,
       newCat,

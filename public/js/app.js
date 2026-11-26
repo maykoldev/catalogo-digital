@@ -117,6 +117,8 @@ function showNoSlugMessage() {
 function normalizeProduct(p) {
   const hasWholesale =
     p.precio_mayor !== undefined && p.precio_mayor !== null && p.precio_mayor !== '' && Number(p.precio_mayor) > 0;
+  const isUnidadesMode =
+    p.modalidad_mayor === 'unidades' && p.minimo_mayor !== undefined && p.minimo_mayor !== null && Number(p.minimo_mayor) >= 1;
   const fallbackImg = p.imagen_url || 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
   const rawImages = Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes : [fallbackImg];
   const cleanImages = Array.from(new Set(rawImages.map((u) => String(u || '').trim()).filter(Boolean)));
@@ -130,6 +132,8 @@ function normalizeProduct(p) {
     descripcion: p.descripcion || 'Producto disponible en catálogo.',
     precio: Number(p.precio) || 0,
     precio_mayor: hasWholesale ? Number(p.precio_mayor) : null,
+    modalidad_mayor: isUnidadesMode ? 'unidades' : 'docena',
+    minimo_mayor: isUnidadesMode ? Math.floor(Number(p.minimo_mayor)) : null,
     inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 10,
     mostrar_stock: Boolean(
       p.mostrar_stock === true ||
@@ -141,6 +145,14 @@ function normalizeProduct(p) {
     imagen_url: finalImages[0],
     imagenes: finalImages
   };
+}
+
+function formatWholesaleConditionLabel(p) {
+  if (p && p.modalidad_mayor === 'unidades' && Number(p.minimo_mayor) >= 1) {
+    const n = Math.floor(Number(p.minimo_mayor));
+    return `(a partir de ${n} ${n === 1 ? 'unidad' : 'unidades'})`;
+  }
+  return '(docena)';
 }
 
 // Construir conteo de categorías dinámicamente a partir de los productos del cliente
@@ -462,7 +474,7 @@ function renderProducts(products) {
               </div>
               ${
                 p.precio_mayor && Number(p.precio_mayor) > 0
-                  ? `<div style="font-size: 0.75rem; font-weight: 700; color: #047857; margin-top: 2px;">Al mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} (docena)</div>`
+                  ? `<div style="font-size: 0.75rem; font-weight: 700; color: #047857; margin-top: 2px;">Al mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(p)}</div>`
                   : ''
               }
             </div>
@@ -599,7 +611,7 @@ function openProductDetail(id) {
           ${
             product.precio_mayor && Number(product.precio_mayor) > 0
               ? `<div style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; padding: 0.3rem 0.75rem; border-radius: var(--radius-md); font-size: 0.95rem; font-weight: 800;">
-                  🏷️ Al Mayor: ${state.currencySymbol}${Number(product.precio_mayor).toFixed(2)} (docena)
+                  🏷️ Al Mayor: ${state.currencySymbol}${Number(product.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(product)}
                 </div>`
               : ''
           }
@@ -677,7 +689,7 @@ function consultProductWhatsApp(id) {
 
   const wholesaleLine =
     p.precio_mayor && Number(p.precio_mayor) > 0
-      ? `\n🏷️ Precio al Mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${state.currencyCode} (docena)`
+      ? `\n🏷️ Precio al Mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${state.currencyCode} ${formatWholesaleConditionLabel(p)}`
       : '';
 
   const text = `¡Hola *${state.clientInfo.nombre}*! Me interesa este producto de su catálogo:
@@ -752,6 +764,8 @@ function addToCart(productId) {
       nombre: product.nombre,
       precio: product.precio,
       precio_mayor: product.precio_mayor,
+      modalidad_mayor: product.modalidad_mayor || 'docena',
+      minimo_mayor: product.minimo_mayor || null,
       imagen_url: product.imagen_url,
       categoria: product.categoria,
       maxStock: product.inventario,
@@ -801,12 +815,26 @@ function computeCartPricingMap() {
         ? liveProd.precio_mayor
         : item.precio_mayor;
     const dozenPrice = rawWholesale && Number(rawWholesale) > 0 ? Number(rawWholesale) : null;
+    const rawModalidad =
+      liveProd && liveProd.modalidad_mayor !== undefined
+        ? liveProd.modalidad_mayor
+        : item.modalidad_mayor;
+    const rawMinimo =
+      liveProd && liveProd.minimo_mayor !== undefined
+        ? liveProd.minimo_mayor
+        : item.minimo_mayor;
+    const modalidadMayor =
+      rawModalidad === 'unidades' && rawMinimo && Number(rawMinimo) >= 1 ? 'unidades' : 'docena';
+    const minimoMayor =
+      modalidadMayor === 'unidades' ? Math.floor(Number(rawMinimo)) : null;
     const qty = Number(item.qty) || 1;
 
     if (!dozenPrice) {
       itemMeta.set(item.id, {
         basePrice,
         dozenPrice: null,
+        modalidadMayor: 'docena',
+        minimoMayor: null,
         groupKey: null,
         qty
       });
@@ -823,6 +851,8 @@ function computeCartPricingMap() {
     itemMeta.set(item.id, {
       basePrice,
       dozenPrice,
+      modalidadMayor,
+      minimoMayor,
       groupKey,
       qty
     });
@@ -852,6 +882,44 @@ function computeCartPricingMap() {
     const groupInfo = groupTotals.get(meta.groupKey);
     const groupQty = groupInfo ? groupInfo.totalQty : meta.qty;
     const isAssortedGroup = groupInfo ? groupInfo.itemCount > 1 : false;
+
+    if (meta.modalidadMayor === 'unidades' && meta.minimoMayor >= 1) {
+      const minQty = meta.minimoMayor;
+      const unitWholesale = meta.dozenPrice;
+
+      if (groupQty >= minQty) {
+        const subtotal = Number((unitWholesale * meta.qty).toFixed(2));
+        const unitPrice = Number(unitWholesale.toFixed(2));
+        const assortedTag = isAssortedGroup ? ' surtido' : '';
+        const tierLabel = `Al mayor${assortedTag} (a partir de ${minQty} unid.)`;
+
+        pricingMap.set(item.id, {
+          isWholesale: true,
+          basePrice: meta.basePrice,
+          unitPrice,
+          dozenPrice: meta.dozenPrice,
+          groupQty,
+          isAssortedGroup,
+          tierLabel,
+          hintText: '',
+          subtotal
+        });
+      } else {
+        const missing = minQty - groupQty;
+        pricingMap.set(item.id, {
+          isWholesale: false,
+          basePrice: meta.basePrice,
+          unitPrice: meta.basePrice,
+          dozenPrice: meta.dozenPrice,
+          groupQty,
+          isAssortedGroup,
+          tierLabel: '',
+          hintText: `Falta${missing === 1 ? '' : 'n'} ${missing} unid. para precio al mayor (a partir de ${minQty} unid.)`,
+          subtotal: Number((meta.basePrice * meta.qty).toFixed(2))
+        });
+      }
+      return;
+    }
 
     // Si precio_mayor representa el valor de la docena (mayor al precio unitario), el unitario al mayor es precio_mayor / 12
     const unitWholesale =

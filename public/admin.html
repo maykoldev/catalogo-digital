@@ -657,8 +657,21 @@
             </div>
 
             <div class="form-group">
-              <label for="prod-wholesale-price" class="form-label">Precio al por Mayor - Docena (Opcional)</label>
-              <input type="number" id="prod-wholesale-price" class="form-control" step="0.01" min="0" placeholder="Ej: 96.00 (la docena)" />
+              <label for="prod-wholesale-price" class="form-label">Precio al por Mayor (Opcional)</label>
+              <div style="display: flex; gap: 0.4rem; align-items: stretch;">
+                <input type="number" id="prod-wholesale-price" class="form-control" step="0.01" min="0" placeholder="Ej: 36.00" style="flex: 1; min-width: 95px;" />
+                <select id="prod-wholesale-type" class="form-select" style="flex: 1.25; min-width: 145px; font-size: 0.82rem; padding-right: 1.5rem;" title="Condición para aplicar el precio al por mayor">
+                  <option value="docena">Por docena</option>
+                  <option value="3">A partir de 3 unid.</option>
+                  <option value="6">A partir de 6 unid.</option>
+                  <option value="12">A partir de 12 unid.</option>
+                  <option value="custom">Otra cantidad (unid.)...</option>
+                </select>
+                <input type="number" id="prod-wholesale-min" class="form-control" step="1" min="1" placeholder="Unid." title="Cantidad mínima de unidades para precio al por mayor" style="display: none; width: 74px; padding: 0.4rem 0.45rem; text-align: center;" />
+              </div>
+              <small id="prod-wholesale-hint" style="color: var(--text-subtle); font-size: 0.7rem; display: block; margin-top: 2px;">
+                Elige al costado si el precio al mayor es por docena o a partir de cierta cantidad de unidades
+              </small>
             </div>
           </div>
 
@@ -840,7 +853,7 @@
                   <th style="min-width: 170px;">Nombre del Producto *</th>
                   <th style="width: 125px;">Categoría</th>
                   <th style="width: 105px;">Precio Detal *</th>
-                  <th style="width: 105px;">Precio Mayor</th>
+                  <th style="width: 205px;">Precio Mayor y Condición</th>
                   <th style="width: 85px;">Stock</th>
                   <th style="min-width: 140px;">Descripción</th>
                   <th style="width: 46px; text-align: center;">✕</th>
@@ -997,6 +1010,6 @@
 
   <!-- Scripts -->
   <script src="/js/env-config.js"></script>
-  <script src="/js/admin.js?v=code1"></script>
+  <script src="/js/admin.js?v=code2"></script>
 </body>
 </html>

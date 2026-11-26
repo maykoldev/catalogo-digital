@@ -205,6 +205,49 @@ class SupabaseCatalogStore {
     return str === 'true' || str === '1' || str === 'si' || str === 'sí' || str === 'yes';
   }
 
+  static normalizeWholesaleInput(modalidad_mayor, minimo_mayor) {
+    const rawMod =
+      modalidad_mayor !== undefined && modalidad_mayor !== null
+        ? String(modalidad_mayor).trim().toLowerCase()
+        : '';
+    const rawMin =
+      minimo_mayor !== undefined && minimo_mayor !== null && minimo_mayor !== ''
+        ? Number(minimo_mayor)
+        : null;
+
+    if (rawMin !== null && !isNaN(rawMin) && rawMin >= 1 && rawMod !== 'docena') {
+      return {
+        modalidad_mayor: 'unidades',
+        minimo_mayor: Math.max(1, Math.floor(rawMin))
+      };
+    }
+
+    if (rawMod && rawMod !== 'docena' && rawMod !== 'por docena') {
+      const numMatch = rawMod.match(/(\d+)/);
+      if (numMatch) {
+        const parsedNum = parseInt(numMatch[1], 10);
+        if (!isNaN(parsedNum) && parsedNum >= 1) {
+          return {
+            modalidad_mayor: 'unidades',
+            minimo_mayor: parsedNum
+          };
+        }
+      }
+      if (rawMod === 'unidades' || rawMod === 'unidad' || rawMod === 'custom') {
+        const minVal = rawMin !== null && !isNaN(rawMin) && rawMin >= 1 ? Math.floor(rawMin) : 3;
+        return {
+          modalidad_mayor: 'unidades',
+          minimo_mayor: minVal
+        };
+      }
+    }
+
+    return {
+      modalidad_mayor: 'docena',
+      minimo_mayor: null
+    };
+  }
+
   static enrichProductRecord(p, metaProducts = {}, clientsMap = new Map()) {
     if (!p) return null;
     const extra = metaProducts[String(p.id)] || {};
@@ -215,6 +258,10 @@ class SupabaseCatalogStore {
       rawMayor !== undefined && rawMayor !== null && rawMayor !== '' && !isNaN(Number(rawMayor)) && Number(rawMayor) > 0
         ? Number(Number(rawMayor).toFixed(2))
         : null;
+
+    const rawModalidad = p.modalidad_mayor !== undefined && p.modalidad_mayor !== null ? p.modalidad_mayor : extra.modalidad_mayor;
+    const rawMinimo = p.minimo_mayor !== undefined && p.minimo_mayor !== null ? p.minimo_mayor : extra.minimo_mayor;
+    const wholesaleCfg = this.normalizeWholesaleInput(rawModalidad, rawMinimo);
 
     const rawMostrarStock = p.mostrar_stock !== undefined ? p.mostrar_stock : extra.mostrar_stock;
     const mostrar_stock = this.parseMostrarStock(rawMostrarStock, false);
@@ -228,6 +275,8 @@ class SupabaseCatalogStore {
       codigo,
       precio: Number(p.precio) || 0,
       precio_mayor: parsedMayor,
+      modalidad_mayor: wholesaleCfg.modalidad_mayor,
+      minimo_mayor: wholesaleCfg.minimo_mayor,
       inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 0,
       mostrar_stock,
       descripcion: p.descripcion || '',
@@ -809,7 +858,7 @@ class SupabaseCatalogStore {
     return enriched;
   }
 
-  static async createProduct({ cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
+  static async createProduct({ cliente_id, codigo, nombre, descripcion, precio, precio_mayor, modalidad_mayor, minimo_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     if (!cliente_id) {
       throw new Error('Debe seleccionar el cliente o tienda al que pertenece el producto.');
     }
@@ -830,6 +879,7 @@ class SupabaseCatalogStore {
         ? Number(Number(precio_mayor).toFixed(2))
         : null;
 
+    const wholesaleCfg = this.normalizeWholesaleInput(modalidad_mayor, minimo_mayor);
     const parsedMostrarStock = this.parseMostrarStock(mostrar_stock, false);
     const normalizedImg = this.normalizeImagesInput(imagenes, imagen_url);
     const cleanCodigo = codigo !== undefined && codigo !== null ? String(codigo).trim() : '';
@@ -862,6 +912,8 @@ class SupabaseCatalogStore {
       codigo: cleanCodigo,
       categoria: cleanCat,
       precio_mayor: parsedMayor,
+      modalidad_mayor: wholesaleCfg.modalidad_mayor,
+      minimo_mayor: wholesaleCfg.minimo_mayor,
       mostrar_stock: parsedMostrarStock,
       imagenes: normalizedImg.imagenes
     };
@@ -902,6 +954,7 @@ class SupabaseCatalogStore {
         ? Number(raw.precio_mayor)
         : null;
       const precio_mayor = rawMayor !== null && !isNaN(rawMayor) && rawMayor > 0 ? Number(rawMayor.toFixed(2)) : null;
+      const wholesaleCfg = this.normalizeWholesaleInput(raw.modalidad_mayor, raw.minimo_mayor);
 
       const rawInv = raw.inventario !== undefined && raw.inventario !== null && raw.inventario !== ''
         ? Number(raw.inventario)
@@ -920,6 +973,8 @@ class SupabaseCatalogStore {
         descripcion,
         precio,
         precio_mayor,
+        modalidad_mayor: wholesaleCfg.modalidad_mayor,
+        minimo_mayor: wholesaleCfg.minimo_mayor,
         inventario,
         mostrar_stock,
         categoria,
@@ -957,6 +1012,8 @@ class SupabaseCatalogStore {
         codigo: sourceItem.codigo || '',
         categoria: sourceItem.categoria || 'General',
         precio_mayor: sourceItem.precio_mayor,
+        modalidad_mayor: sourceItem.modalidad_mayor || 'docena',
+        minimo_mayor: sourceItem.minimo_mayor ?? null,
         mostrar_stock: Boolean(sourceItem.mostrar_stock),
         imagenes: sourceItem.imagenes || [row.imagen_url]
       };
@@ -973,7 +1030,7 @@ class SupabaseCatalogStore {
     };
   }
 
-  static async updateProduct(id, { cliente_id, codigo, nombre, descripcion, precio, precio_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
+  static async updateProduct(id, { cliente_id, codigo, nombre, descripcion, precio, precio_mayor, modalidad_mayor, minimo_mayor, inventario, mostrar_stock, categoria, imagen_url, imagenes }) {
     const existing = await this.getProductById(id);
     if (!existing) {
       throw new Error('Producto no encontrado.');
@@ -1030,6 +1087,17 @@ class SupabaseCatalogStore {
           ? prevProdMeta.precio_mayor
           : existing.precio_mayor || null;
 
+    const wholesaleCfg =
+      modalidad_mayor !== undefined || minimo_mayor !== undefined
+        ? this.normalizeWholesaleInput(
+            modalidad_mayor !== undefined ? modalidad_mayor : (prevProdMeta.modalidad_mayor ?? existing.modalidad_mayor),
+            minimo_mayor !== undefined ? minimo_mayor : (prevProdMeta.minimo_mayor ?? existing.minimo_mayor)
+          )
+        : this.normalizeWholesaleInput(
+            prevProdMeta.modalidad_mayor ?? existing.modalidad_mayor,
+            prevProdMeta.minimo_mayor ?? existing.minimo_mayor
+          );
+
     const nextMostrarStock =
       mostrar_stock !== undefined
         ? this.parseMostrarStock(mostrar_stock, Boolean(existing.mostrar_stock))
@@ -1040,6 +1108,8 @@ class SupabaseCatalogStore {
       codigo: nextCodigo,
       categoria: nextCat,
       precio_mayor: nextMayor,
+      modalidad_mayor: wholesaleCfg.modalidad_mayor,
+      minimo_mayor: wholesaleCfg.minimo_mayor,
       mostrar_stock: nextMostrarStock,
       imagenes: normalizedImg.imagenes
     };

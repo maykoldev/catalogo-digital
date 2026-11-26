@@ -360,6 +360,7 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
     categoria: -1,
     precio: -1,
     precio_mayor: -1,
+    modalidad_mayor: -1,
     inventario: -1,
     descripcion: -1,
     imagen_url: -1
@@ -393,6 +394,20 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
       ].includes(key)
     ) {
       columnMap.precio_mayor = idx;
+    } else if (
+      columnMap.modalidad_mayor === -1 &&
+      [
+        'modalidadmayor',
+        'minimomayor',
+        'condicionmayor',
+        'tipomayor',
+        'cantidadmayor',
+        'unidadmayor',
+        'apartirde',
+        'minimo'
+      ].includes(key)
+    ) {
+      columnMap.modalidad_mayor = idx;
     } else if (
       columnMap.precio === -1 &&
       ['precio', 'preciounitario', 'preciodetal', 'preciounitariodetal', 'detal', 'valor', 'costo', 'price', 'pvp'].includes(key)
@@ -478,6 +493,7 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
     const rawCat = columnMap.categoria !== -1 ? String(row[columnMap.categoria] ?? '').trim() : '';
     const rawPrecio = columnMap.precio !== -1 ? row[columnMap.precio] : '';
     const rawMayor = columnMap.precio_mayor !== -1 ? row[columnMap.precio_mayor] : '';
+    const rawModMayor = columnMap.modalidad_mayor !== -1 ? String(row[columnMap.modalidad_mayor] ?? '').trim() : '';
     const rawStock = columnMap.inventario !== -1 ? row[columnMap.inventario] : '';
     const rawDesc = columnMap.descripcion !== -1 ? String(row[columnMap.descripcion] ?? '').trim() : '';
     const rawImg = columnMap.imagen_url !== -1 ? String(row[columnMap.imagen_url] ?? '').trim() : '';
@@ -489,6 +505,20 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
     const precio = parseNumericField(rawPrecio, 0);
     const parsedMayor = parseNumericField(rawMayor, null);
     const precio_mayor = parsedMayor !== null && parsedMayor > 0 ? Number(parsedMayor.toFixed(2)) : null;
+
+    let modalidad_mayor = 'docena';
+    let minimo_mayor = null;
+    if (rawModMayor && rawModMayor.toLowerCase() !== 'docena' && rawModMayor.toLowerCase() !== 'por docena') {
+      const mNum = rawModMayor.match(/(\d+)/);
+      if (mNum) {
+        const nVal = parseInt(mNum[1], 10);
+        if (!isNaN(nVal) && nVal >= 1) {
+          modalidad_mayor = 'unidades';
+          minimo_mayor = nVal;
+        }
+      }
+    }
+
     const parsedStock = parseNumericField(rawStock, 10);
     const inventario = parsedStock !== null && parsedStock >= 0 ? Math.floor(parsedStock) : 10;
 
@@ -523,6 +553,8 @@ function mapMatrixToProducts(matrix, { storageFiles = [] } = {}) {
       categoria: rawCat || 'General',
       precio: precio !== null && precio >= 0 ? Number(precio.toFixed(2)) : 0,
       precio_mayor,
+      modalidad_mayor,
+      minimo_mayor,
       inventario,
       descripcion: rawDesc,
       imagen_url: uniqueImages[0] || '',

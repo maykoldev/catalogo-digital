@@ -191,6 +191,20 @@ if (!productCols.some(c => c.name === 'codigo')) {
     console.log('Nota de migración codigo:', e.message);
   }
 }
+if (!productCols.some(c => c.name === 'modalidad_mayor')) {
+  try {
+    db.exec("ALTER TABLE productos ADD COLUMN modalidad_mayor TEXT DEFAULT 'docena';");
+  } catch (e) {
+    console.log('Nota de migración modalidad_mayor:', e.message);
+  }
+}
+if (!productCols.some(c => c.name === 'minimo_mayor')) {
+  try {
+    db.exec('ALTER TABLE productos ADD COLUMN minimo_mayor INTEGER DEFAULT NULL;');
+  } catch (e) {
+    console.log('Nota de migración minimo_mayor:', e.message);
+  }
+}
 
 // Índices para optimización de consultas multi-inquilino
 db.exec(`
