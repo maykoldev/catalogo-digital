@@ -215,36 +215,28 @@ class SupabaseCatalogStore {
         ? Number(minimo_mayor)
         : null;
 
-    if (rawMin !== null && !isNaN(rawMin) && rawMin >= 1 && rawMod !== 'docena') {
-      return {
-        modalidad_mayor: 'unidades',
-        minimo_mayor: Math.max(1, Math.floor(rawMin))
-      };
-    }
+    let parsedMin = rawMin !== null && !isNaN(rawMin) && rawMin >= 1 ? Math.max(1, Math.floor(rawMin)) : null;
+    let parsedMod = 'docena';
 
-    if (rawMod && rawMod !== 'docena' && rawMod !== 'por docena') {
+    if (rawMod === 'unidades' || rawMod === 'unidad' || rawMod === 'mayor' || rawMod === 'al_mayor' || rawMod === 'al mayor') {
+      parsedMod = 'unidades';
+    } else if (rawMod === 'docena' || rawMod === 'por docena') {
+      parsedMod = 'docena';
+    } else if (rawMod) {
+      const isDocenaText = rawMod.includes('docena');
       const numMatch = rawMod.match(/(\d+)/);
       if (numMatch) {
-        const parsedNum = parseInt(numMatch[1], 10);
-        if (!isNaN(parsedNum) && parsedNum >= 1) {
-          return {
-            modalidad_mayor: 'unidades',
-            minimo_mayor: parsedNum
-          };
+        const n = parseInt(numMatch[1], 10);
+        if (!isNaN(n) && n >= 1 && parsedMin === null) {
+          parsedMin = n;
         }
       }
-      if (rawMod === 'unidades' || rawMod === 'unidad' || rawMod === 'custom') {
-        const minVal = rawMin !== null && !isNaN(rawMin) && rawMin >= 1 ? Math.floor(rawMin) : 3;
-        return {
-          modalidad_mayor: 'unidades',
-          minimo_mayor: minVal
-        };
-      }
+      parsedMod = isDocenaText ? 'docena' : 'unidades';
     }
 
     return {
-      modalidad_mayor: 'docena',
-      minimo_mayor: null
+      modalidad_mayor: parsedMod,
+      minimo_mayor: parsedMin
     };
   }
 

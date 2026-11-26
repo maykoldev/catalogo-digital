@@ -227,10 +227,30 @@ function setupEventListeners() {
 }
 
 function setupWholesaleTypeListeners() {
+  const prefixSelect = document.getElementById('prod-wholesale-prefix');
   const typeSelect = document.getElementById('prod-wholesale-type');
   const minInput = document.getElementById('prod-wholesale-min');
   const priceInput = document.getElementById('prod-wholesale-price');
+  const hintEl = document.getElementById('prod-wholesale-hint');
   if (!typeSelect || !minInput) return;
+
+  const updatePreviewHint = () => {
+    const prefixWord = prefixSelect && prefixSelect.value === 'docena' ? 'Docena' : 'Al mayor';
+    const rawPrice = priceInput && priceInput.value ? Number(priceInput.value).toFixed(2) : '70.00';
+    let parenText = '(a partir de 6 unidades)';
+    if (typeSelect.value === 'docena') {
+      parenText = '(docena)';
+    } else if (typeSelect.value === 'custom') {
+      const n = Math.max(1, parseInt(minInput.value, 10) || 3);
+      parenText = `(a partir de ${n} ${n === 1 ? 'unidad' : 'unidades'})`;
+    } else {
+      const n = parseInt(typeSelect.value, 10) || 6;
+      parenText = `(a partir de ${n} unidades)`;
+    }
+    if (hintEl) {
+      hintEl.textContent = `Vista previa en catálogo: ${prefixWord}: $${rawPrice} ${parenText}`;
+    }
+  };
 
   typeSelect.addEventListener('change', () => {
     if (typeSelect.value === 'custom') {
@@ -240,15 +260,20 @@ function setupWholesaleTypeListeners() {
     } else {
       minInput.style.display = 'none';
     }
-    if (priceInput) {
-      priceInput.placeholder =
-        typeSelect.value === 'docena' ? 'Ej: 36.00 (docena)' : 'Ej: 2.50 (c/u al mayor)';
-    }
+    updatePreviewHint();
   });
+
+  if (prefixSelect) prefixSelect.addEventListener('change', updatePreviewHint);
+  if (priceInput) priceInput.addEventListener('input', updatePreviewHint);
+  minInput.addEventListener('input', updatePreviewHint);
+}
+
+function formatAdminWholesalePrefix(p) {
+  return p && p.modalidad_mayor === 'docena' ? 'Docena' : 'Al mayor';
 }
 
 function formatAdminWholesaleCondition(p) {
-  if (p && p.modalidad_mayor === 'unidades' && Number(p.minimo_mayor) >= 1) {
+  if (p && Number(p.minimo_mayor) >= 1) {
     const n = Math.floor(Number(p.minimo_mayor));
     return `(a partir de ${n} ${n === 1 ? 'unid.' : 'unid.'})`;
   }
@@ -1339,7 +1364,7 @@ function renderAdminTable(products) {
           <div>${escapeHtml(prodSymbol)}${Number(p.precio).toFixed(2)}</div>
           ${
             p.precio_mayor !== undefined && p.precio_mayor !== null && Number(p.precio_mayor) > 0
-              ? `<div style="font-size: 0.72rem; color: #047857; font-weight: 700; margin-top: 2px;">Mayor: ${escapeHtml(prodSymbol)}${Number(p.precio_mayor).toFixed(2)} <span style="font-weight: 600;">${formatAdminWholesaleCondition(p)}</span></div>`
+              ? `<div style="font-size: 0.72rem; color: #047857; font-weight: 700; margin-top: 2px;">${formatAdminWholesalePrefix(p)}: ${escapeHtml(prodSymbol)}${Number(p.precio_mayor).toFixed(2)} <span style="font-weight: 600;">${formatAdminWholesaleCondition(p)}</span></div>`
               : ''
           }
         </td>
@@ -1625,10 +1650,14 @@ function openProductForm(mode, product = null) {
       product.precio_mayor !== undefined && product.precio_mayor !== null && Number(product.precio_mayor) > 0
         ? product.precio_mayor
         : '';
+    const wholesalePrefixEl = document.getElementById('prod-wholesale-prefix');
     const wholesaleTypeEl = document.getElementById('prod-wholesale-type');
     const wholesaleMinEl = document.getElementById('prod-wholesale-min');
+    if (wholesalePrefixEl) {
+      wholesalePrefixEl.value = product.modalidad_mayor === 'docena' ? 'docena' : 'unidades';
+    }
     if (wholesaleTypeEl && wholesaleMinEl) {
-      if (product.modalidad_mayor === 'unidades' && Number(product.minimo_mayor) >= 1) {
+      if (Number(product.minimo_mayor) >= 1) {
         const minQty = Math.floor(Number(product.minimo_mayor));
         if (['3', '6', '12'].includes(String(minQty))) {
           wholesaleTypeEl.value = String(minQty);
@@ -1644,6 +1673,7 @@ function openProductForm(mode, product = null) {
         wholesaleMinEl.value = '';
         wholesaleMinEl.style.display = 'none';
       }
+      wholesaleTypeEl.dispatchEvent(new Event('change'));
     }
     document.getElementById('prod-stock').value = product.inventario;
     const showStockEl = document.getElementById('prod-show-stock');
@@ -1681,13 +1711,16 @@ function openProductForm(mode, product = null) {
     if (codeInputEl) codeInputEl.value = '';
     const wholesaleEl = document.getElementById('prod-wholesale-price');
     if (wholesaleEl) wholesaleEl.value = '';
+    const wholesalePrefixEl = document.getElementById('prod-wholesale-prefix');
     const wholesaleTypeEl = document.getElementById('prod-wholesale-type');
     const wholesaleMinEl = document.getElementById('prod-wholesale-min');
-    if (wholesaleTypeEl) wholesaleTypeEl.value = 'docena';
+    if (wholesalePrefixEl) wholesalePrefixEl.value = 'unidades';
+    if (wholesaleTypeEl) wholesaleTypeEl.value = '6';
     if (wholesaleMinEl) {
       wholesaleMinEl.value = '';
       wholesaleMinEl.style.display = 'none';
     }
+    if (wholesaleTypeEl) wholesaleTypeEl.dispatchEvent(new Event('change'));
     const showStockEl = document.getElementById('prod-show-stock');
     if (showStockEl) showStockEl.checked = false;
   }
@@ -1756,19 +1789,19 @@ async function handleProductFormSubmit(e) {
       ? parseFloat(rawWholesale)
       : null;
 
-  const wholesaleTypeVal = document.getElementById('prod-wholesale-type')?.value || 'docena';
+  const wholesalePrefixVal = document.getElementById('prod-wholesale-prefix')?.value || 'unidades';
+  const wholesaleTypeVal = document.getElementById('prod-wholesale-type')?.value || '6';
   const rawWholesaleMin = document.getElementById('prod-wholesale-min')?.value?.trim() || '';
-  let modalidad_mayor = 'docena';
+  const modalidad_mayor = wholesalePrefixVal === 'docena' ? 'docena' : 'unidades';
   let minimo_mayor = null;
 
   if (wholesaleTypeVal !== 'docena') {
-    modalidad_mayor = 'unidades';
     if (wholesaleTypeVal === 'custom') {
       const parsedMin = parseInt(rawWholesaleMin, 10);
       minimo_mayor = !isNaN(parsedMin) && parsedMin >= 1 ? parsedMin : 3;
     } else {
       const parsedMin = parseInt(wholesaleTypeVal, 10);
-      minimo_mayor = !isNaN(parsedMin) && parsedMin >= 1 ? parsedMin : 3;
+      minimo_mayor = !isNaN(parsedMin) && parsedMin >= 1 ? parsedMin : 6;
     }
   }
 
@@ -3001,10 +3034,11 @@ function renderBulkPreviewTable() {
     .map((r, idx) => {
       const thumbUrl = r.imagen_url || 'https://placehold.co/80x80/e2e8f0/475569?text=IMG';
       const mayorVal = r.precio_mayor !== null && r.precio_mayor !== undefined && r.precio_mayor !== '' ? r.precio_mayor : '';
-      const isUnidades = r.modalidad_mayor === 'unidades' && Number(r.minimo_mayor) >= 1;
-      const minQty = isUnidades ? Math.floor(Number(r.minimo_mayor)) : null;
-      const isPresetMin = isUnidades && ['3', '6', '12'].includes(String(minQty));
-      const selectModeVal = !isUnidades ? 'docena' : isPresetMin ? String(minQty) : 'custom';
+      const prefixVal = r.modalidad_mayor === 'docena' ? 'docena' : 'unidades';
+      const hasMin = Number(r.minimo_mayor) >= 1;
+      const minQty = hasMin ? Math.floor(Number(r.minimo_mayor)) : null;
+      const isPresetMin = hasMin && ['3', '6', '12'].includes(String(minQty));
+      const selectModeVal = !hasMin ? 'docena' : isPresetMin ? String(minQty) : 'custom';
       return `
         <tr>
           <td style="font-weight: 700; color: var(--text-muted);">${idx + 1}</td>
@@ -3065,25 +3099,34 @@ function renderBulkPreviewTable() {
           </td>
           <td>
             <div style="display: flex; gap: 0.25rem; align-items: center;">
+              <select
+                class="form-select"
+                style="padding: 0.3rem 1.1rem 0.3rem 0.3rem; font-size: 0.72rem; font-weight: 700; width: 82px;"
+                title="Etiqueta: Al mayor o Docena"
+                onchange="updateBulkRowField(${idx}, 'modalidad_mayor', this.value)"
+              >
+                <option value="unidades" ${prefixVal === 'unidades' ? 'selected' : ''}>Al mayor</option>
+                <option value="docena" ${prefixVal === 'docena' ? 'selected' : ''}>Docena</option>
+              </select>
               <input
                 type="number"
                 step="0.01"
                 min="0"
                 class="form-control"
-                style="padding: 0.3rem 0.4rem; font-size: 0.8125rem; width: 78px;"
+                style="padding: 0.3rem 0.35rem; font-size: 0.8125rem; width: 70px;"
                 value="${mayorVal}"
                 placeholder="Precio"
                 oninput="updateBulkRowField(${idx}, 'precio_mayor', this.value)"
               />
               <select
                 class="form-select"
-                style="padding: 0.3rem 1.2rem 0.3rem 0.35rem; font-size: 0.74rem; min-width: 102px;"
+                style="padding: 0.3rem 1.1rem 0.3rem 0.3rem; font-size: 0.72rem; min-width: 92px;"
                 onchange="updateBulkRowWholesaleType(${idx}, this.value)"
               >
-                <option value="docena" ${selectModeVal === 'docena' ? 'selected' : ''}>Por docena</option>
-                <option value="3" ${selectModeVal === '3' ? 'selected' : ''}>≥ 3 unid.</option>
                 <option value="6" ${selectModeVal === '6' ? 'selected' : ''}>≥ 6 unid.</option>
+                <option value="3" ${selectModeVal === '3' ? 'selected' : ''}>≥ 3 unid.</option>
                 <option value="12" ${selectModeVal === '12' ? 'selected' : ''}>≥ 12 unid.</option>
+                <option value="docena" ${selectModeVal === 'docena' ? 'selected' : ''}>(docena)</option>
                 <option value="custom" ${selectModeVal === 'custom' ? 'selected' : ''}>≥ X unid.</option>
               </select>
               <input
@@ -3091,7 +3134,7 @@ function renderBulkPreviewTable() {
                 step="1"
                 min="1"
                 class="form-control"
-                style="display: ${selectModeVal === 'custom' ? 'block' : 'none'}; width: 52px; padding: 0.3rem 0.3rem; font-size: 0.75rem; text-align: center;"
+                style="display: ${selectModeVal === 'custom' ? 'block' : 'none'}; width: 48px; padding: 0.3rem 0.25rem; font-size: 0.74rem; text-align: center;"
                 value="${minQty || 3}"
                 title="Cantidad mínima de unidades"
                 oninput="updateBulkRowField(${idx}, 'minimo_mayor', this.value)"
@@ -3134,16 +3177,13 @@ function updateBulkRowWholesaleType(rowIndex, modeValue) {
   const row = adminState.bulk.rows[rowIndex];
   if (!row) return;
   if (modeValue === 'docena') {
-    row.modalidad_mayor = 'docena';
     row.minimo_mayor = null;
   } else if (modeValue === 'custom') {
-    row.modalidad_mayor = 'unidades';
     if (!row.minimo_mayor || Number(row.minimo_mayor) < 1) {
       row.minimo_mayor = 4;
     }
   } else {
-    row.modalidad_mayor = 'unidades';
-    row.minimo_mayor = parseInt(modeValue, 10) || 3;
+    row.minimo_mayor = parseInt(modeValue, 10) || 6;
   }
   renderBulkPreviewTable();
 }
@@ -3155,8 +3195,9 @@ function updateBulkRowField(rowIndex, field, value) {
     row.precio = value === '' ? 0 : parseFloat(value);
   } else if (field === 'precio_mayor') {
     row.precio_mayor = value === '' || Number(value) <= 0 ? null : parseFloat(value);
+  } else if (field === 'modalidad_mayor') {
+    row.modalidad_mayor = value === 'docena' ? 'docena' : 'unidades';
   } else if (field === 'minimo_mayor') {
-    row.modalidad_mayor = 'unidades';
     row.minimo_mayor = value === '' || Number(value) < 1 ? 1 : Math.floor(Number(value));
   } else if (field === 'inventario') {
     row.inventario = value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0);

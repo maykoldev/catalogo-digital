@@ -657,20 +657,24 @@
             </div>
 
             <div class="form-group">
-              <label for="prod-wholesale-price" class="form-label">Precio al por Mayor (Opcional)</label>
-              <div style="display: flex; gap: 0.4rem; align-items: stretch;">
-                <input type="number" id="prod-wholesale-price" class="form-control" step="0.01" min="0" placeholder="Ej: 36.00" style="flex: 1; min-width: 95px;" />
-                <select id="prod-wholesale-type" class="form-select" style="flex: 1.25; min-width: 145px; font-size: 0.82rem; padding-right: 1.5rem;" title="Condición para aplicar el precio al por mayor">
-                  <option value="docena">Por docena</option>
-                  <option value="3">A partir de 3 unid.</option>
-                  <option value="6">A partir de 6 unid.</option>
-                  <option value="12">A partir de 12 unid.</option>
+              <label for="prod-wholesale-price" class="form-label">Precio Mayor / Docena (Opcional)</label>
+              <div style="display: flex; gap: 0.35rem; align-items: stretch; flex-wrap: wrap;">
+                <select id="prod-wholesale-prefix" class="form-select" style="flex: 0 0 112px; font-size: 0.82rem; font-weight: 700; padding-right: 1.4rem;" title="Etiqueta que se mostrará antes del precio">
+                  <option value="unidades">Al mayor:</option>
+                  <option value="docena">Docena:</option>
+                </select>
+                <input type="number" id="prod-wholesale-price" class="form-control" step="0.01" min="0" placeholder="Ej: 70.00" style="flex: 1; min-width: 88px;" />
+                <select id="prod-wholesale-type" class="form-select" style="flex: 1.3; min-width: 148px; font-size: 0.82rem; padding-right: 1.4rem;" title="Condición entre paréntesis al costado del precio">
+                  <option value="6">(a partir de 6 unidades)</option>
+                  <option value="3">(a partir de 3 unidades)</option>
+                  <option value="12">(a partir de 12 unidades)</option>
+                  <option value="docena">(docena)</option>
                   <option value="custom">Otra cantidad (unid.)...</option>
                 </select>
-                <input type="number" id="prod-wholesale-min" class="form-control" step="1" min="1" placeholder="Unid." title="Cantidad mínima de unidades para precio al por mayor" style="display: none; width: 74px; padding: 0.4rem 0.45rem; text-align: center;" />
+                <input type="number" id="prod-wholesale-min" class="form-control" step="1" min="1" placeholder="Unid." title="Cantidad mínima de unidades" style="display: none; width: 70px; padding: 0.4rem 0.45rem; text-align: center;" />
               </div>
-              <small id="prod-wholesale-hint" style="color: var(--text-subtle); font-size: 0.7rem; display: block; margin-top: 2px;">
-                Elige al costado si el precio al mayor es por docena o a partir de cierta cantidad de unidades
+              <small id="prod-wholesale-hint" style="color: #047857; font-weight: 600; font-size: 0.72rem; display: block; margin-top: 3px;">
+                Elige si dirá "Al mayor:" o "Docena:" y al costado la cantidad mínima entre paréntesis
               </small>
             </div>
           </div>
@@ -1010,6 +1014,6 @@
 
   <!-- Scripts -->
   <script src="/js/env-config.js"></script>
-  <script src="/js/admin.js?v=code2"></script>
+  <script src="/js/admin.js?v=code3"></script>
 </body>
 </html>

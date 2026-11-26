@@ -117,8 +117,9 @@ function showNoSlugMessage() {
 function normalizeProduct(p) {
   const hasWholesale =
     p.precio_mayor !== undefined && p.precio_mayor !== null && p.precio_mayor !== '' && Number(p.precio_mayor) > 0;
-  const isUnidadesMode =
-    p.modalidad_mayor === 'unidades' && p.minimo_mayor !== undefined && p.minimo_mayor !== null && Number(p.minimo_mayor) >= 1;
+  const hasMinQty =
+    p.minimo_mayor !== undefined && p.minimo_mayor !== null && p.minimo_mayor !== '' && Number(p.minimo_mayor) >= 1;
+  const rawMod = p.modalidad_mayor ? String(p.modalidad_mayor).trim().toLowerCase() : 'docena';
   const fallbackImg = p.imagen_url || 'https://placehold.co/400x400/e2e8f0/475569?text=Producto';
   const rawImages = Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes : [fallbackImg];
   const cleanImages = Array.from(new Set(rawImages.map((u) => String(u || '').trim()).filter(Boolean)));
@@ -132,8 +133,8 @@ function normalizeProduct(p) {
     descripcion: p.descripcion || 'Producto disponible en catálogo.',
     precio: Number(p.precio) || 0,
     precio_mayor: hasWholesale ? Number(p.precio_mayor) : null,
-    modalidad_mayor: isUnidadesMode ? 'unidades' : 'docena',
-    minimo_mayor: isUnidadesMode ? Math.floor(Number(p.minimo_mayor)) : null,
+    modalidad_mayor: rawMod === 'unidades' ? 'unidades' : 'docena',
+    minimo_mayor: hasMinQty ? Math.floor(Number(p.minimo_mayor)) : null,
     inventario: p.inventario !== undefined && p.inventario !== null ? Number(p.inventario) : 10,
     mostrar_stock: Boolean(
       p.mostrar_stock === true ||
@@ -147,8 +148,18 @@ function normalizeProduct(p) {
   };
 }
 
+function formatWholesalePrefixLabel(p) {
+  if (!p) return 'Al mayor';
+  if (p.modalidad_mayor === 'docena') {
+    if (Number(p.minimo_mayor) >= 1 || Number(p.precio_mayor) > Number(p.precio)) {
+      return 'Docena';
+    }
+  }
+  return 'Al mayor';
+}
+
 function formatWholesaleConditionLabel(p) {
-  if (p && p.modalidad_mayor === 'unidades' && Number(p.minimo_mayor) >= 1) {
+  if (p && Number(p.minimo_mayor) >= 1) {
     const n = Math.floor(Number(p.minimo_mayor));
     return `(a partir de ${n} ${n === 1 ? 'unidad' : 'unidades'})`;
   }
@@ -474,7 +485,7 @@ function renderProducts(products) {
               </div>
               ${
                 p.precio_mayor && Number(p.precio_mayor) > 0
-                  ? `<div style="font-size: 0.75rem; font-weight: 700; color: #047857; margin-top: 2px;">Al mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(p)}</div>`
+                  ? `<div style="font-size: 0.75rem; font-weight: 700; color: #047857; margin-top: 2px;">${formatWholesalePrefixLabel(p)}: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(p)}</div>`
                   : ''
               }
             </div>
@@ -611,7 +622,7 @@ function openProductDetail(id) {
           ${
             product.precio_mayor && Number(product.precio_mayor) > 0
               ? `<div style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; padding: 0.3rem 0.75rem; border-radius: var(--radius-md); font-size: 0.95rem; font-weight: 800;">
-                  🏷️ Al Mayor: ${state.currencySymbol}${Number(product.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(product)}
+                  🏷️ ${formatWholesalePrefixLabel(product)}: ${state.currencySymbol}${Number(product.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(product)}
                 </div>`
               : ''
           }
@@ -689,7 +700,7 @@ function consultProductWhatsApp(id) {
 
   const wholesaleLine =
     p.precio_mayor && Number(p.precio_mayor) > 0
-      ? `\n🏷️ Precio al Mayor: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${state.currencyCode} ${formatWholesaleConditionLabel(p)}`
+      ? `\n🏷️ ${formatWholesalePrefixLabel(p)}: ${state.currencySymbol}${Number(p.precio_mayor).toFixed(2)} ${state.currencyCode} ${formatWholesaleConditionLabel(p)}`
       : '';
 
   const text = `¡Hola *${state.clientInfo.nombre}*! Me interesa este producto de su catálogo:
@@ -823,10 +834,11 @@ function computeCartPricingMap() {
       liveProd && liveProd.minimo_mayor !== undefined
         ? liveProd.minimo_mayor
         : item.minimo_mayor;
-    const modalidadMayor =
-      rawModalidad === 'unidades' && rawMinimo && Number(rawMinimo) >= 1 ? 'unidades' : 'docena';
+    const modalidadMayor = rawModalidad === 'unidades' ? 'unidades' : 'docena';
     const minimoMayor =
-      modalidadMayor === 'unidades' ? Math.floor(Number(rawMinimo)) : null;
+      rawMinimo !== undefined && rawMinimo !== null && Number(rawMinimo) >= 1
+        ? Math.floor(Number(rawMinimo))
+        : null;
     const qty = Number(item.qty) || 1;
 
     if (!dozenPrice) {
@@ -930,7 +942,8 @@ function computeCartPricingMap() {
         ? meta.dozenPrice / 12
         : meta.dozenPrice;
 
-    if (groupQty >= 6) {
+    const docenaMinQty = meta.minimoMayor >= 1 ? meta.minimoMayor : 6;
+    if (groupQty >= docenaMinQty) {
       const subtotal = Number((unitWholesale * meta.qty).toFixed(2));
       const unitPrice = Number(unitWholesale.toFixed(2));
       const assortedTag = isAssortedGroup ? ' surtida' : '';
@@ -960,7 +973,7 @@ function computeCartPricingMap() {
         subtotal
       });
     } else {
-      const missingForHalfDozen = 6 - groupQty;
+      const missingForHalfDozen = docenaMinQty - groupQty;
       pricingMap.set(item.id, {
         isWholesale: false,
         basePrice: meta.basePrice,
@@ -969,7 +982,7 @@ function computeCartPricingMap() {
         groupQty,
         isAssortedGroup,
         tierLabel: '',
-        hintText: `Faltan ${missingForHalfDozen} unid. de este mismo tipo/medida para ½ docena al mayor`,
+        hintText: `Falta${missingForHalfDozen === 1 ? '' : 'n'} ${missingForHalfDozen} unid. de este mismo tipo/medida para precio por docena (a partir de ${docenaMinQty} unid.)`,
         subtotal: Number((meta.basePrice * meta.qty).toFixed(2))
       });
     }
