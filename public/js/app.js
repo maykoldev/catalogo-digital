@@ -885,7 +885,10 @@ function computeCartPricingMap() {
 
     if (meta.modalidadMayor === 'unidades' && meta.minimoMayor >= 1) {
       const minQty = meta.minimoMayor;
-      const unitWholesale = meta.dozenPrice;
+      const unitWholesale =
+        meta.dozenPrice > meta.basePrice
+          ? meta.dozenPrice / 12
+          : meta.dozenPrice;
 
       if (groupQty >= minQty) {
         const subtotal = Number((unitWholesale * meta.qty).toFixed(2));
