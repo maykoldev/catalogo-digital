@@ -589,14 +589,6 @@ function renderProducts(products) {
 
   productsGrid.innerHTML = sortedSections
     .map(([sectionTitle, sectionItems], idx) => {
-      const sampleItem = sectionItems[0];
-      const wholesaleSummary =
-        sampleItem && sampleItem.precio_mayor && Number(sampleItem.precio_mayor) > 0
-          ? `<span style="font-size: 0.8rem; font-weight: 700; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 0.2rem 0.65rem; border-radius: 999px;">
-              ${formatWholesalePrefixLabel(sampleItem)}: ${state.currencySymbol}${Number(sampleItem.precio_mayor).toFixed(2)} ${formatWholesaleConditionLabel(sampleItem)}
-            </span>`
-          : '';
-
       const headerHtml = `
         <div class="catalog-section-divider" style="grid-column: 1 / -1; margin-top: ${idx === 0 ? '0.25rem' : '1.75rem'}; margin-bottom: 0.25rem; background: #ffffff; border: 1px solid var(--border-light); border-left: 5px solid var(--primary); border-radius: var(--radius-md); padding: 0.85rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; box-shadow: var(--shadow-sm);">
           <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
@@ -607,7 +599,6 @@ function renderProducts(products) {
               ${sectionItems.length} ${sectionItems.length === 1 ? 'producto' : 'productos'}
             </span>
           </div>
-          ${wholesaleSummary}
         </div>
       `;
 
